@@ -15,48 +15,46 @@ jobs:
 
       - name: Fetch and Merge Playlists
         run: |
-          # 1. Start with M3U Header and EPG
+          # 1. Start with M3U Header
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Download and Clean sources (Remove existing group titles to prevent mixing)
-          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | sed 's/^#EXTM3U//g' >> temp_raw.m3u
-          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | sed 's/^#EXTM3U//g' >> temp_raw.m3u
+          # 2. Download and merge sources into a raw pool
+          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" > temp_raw.m3u
+          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "#EXTM3U" >> temp_raw.m3u
           
-          # 3. Add JSON source
+          # 3. Add JSON source (SonyLIV)
           curl -s https://raw.githubusercontent.com/DebugDyno/yo_events/4a8ac953d5db100864bd91afd12afda8f7e33f62/sony_livetv.json | \
           jq -r '.data[] | "#EXTINF:-1 tvg-logo=\"\(.image)\" group-title=\"\(.group)\", \(.name)\n\(.stream)"' >> temp_raw.m3u
 
-          # 4. Extract ONLY Exact Marathi Channels
+          # 4. Extract ONLY the specific Marathi channels you asked for
           echo "## --- MARATHI --- ##" >> merged_playlist.m3u
           
-          # We use a strict pattern match to avoid Zee Punjabi, Sony WAH, etc.
-          # The '$' ensures it matches the name specifically at the end of the line.
-          grep -Ei ", Zee Marathi|, Star Pravah|, Colors Marathi|, Sony Marathi|, Zee Yuva|, Sun Marathi|, DD Sahyadri|, Fakt Marathi|, Zee Talkies|, Pravah Picture|, Shemaroo Marathibana|, Zee Chitramandir|, Zee 24 Taas|, ABP Majha|, News18 Lokmat|, NDTV Marathi|, TV9 Marathi|, Saam TV|, Jai Maharashtra|, Lokshahi|, Pudhari News|, 9X Jhakaas|, Maiboli|, Sangeet Marathi|, Dagdusheth|, Vitthal Rukmini|, Tulja Bhavani|, Mahalaxmi|, MKN Marathi|, News State" temp_raw.m3u -A 8 | grep -vE "^--$" > marathi_temp.m3u
+          # We search for the name and grab ONLY until the next URL. 
+          # This prevents "Sony AATH" from being pulled into the "Sony Marathi" block.
+          grep -Ei ", (Zee Marathi|Star Pravah|Colors Marathi|Sony Marathi|Zee Yuva|Sun Marathi|DD Sahyadri|Fakt Marathi|Zee Talkies|Pravah Picture|Shemaroo Marathibana|Zee Chitramandir|Zee 24 Taas|ABP Majha|News18 Lokmat|NDTV Marathi|TV9 Marathi|Saam TV|Jai Maharashtra|Lokshahi|Pudhari News|9X Jhakaas|Maiboli|Sangeet Marathi|Dagdusheth|Vitthal Rukmini|Tulja Bhavani|Mahalaxmi|MKN Marathi|News State)" temp_raw.m3u -A 8 | grep -vE "^--$" > marathi_temp.m3u
 
-          # 5. Force "Marathi" group title and fix logos
-          sed -i 's/group-title="[^"]*"/group-title="Marathi"/g' marathi_temp.m3u
-          
-          # High Quality Logo Fixer (Ensuring exact matches)
-          sed -i 's|tvg-logo="[^"]*"\(.*\)Zee Marathi|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/zeemarathi.png"\1Zee Marathi|g' marathi_temp.m3u
-          sed -i 's|tvg-logo="[^"]*"\(.*\)Star Pravah|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/starpravah.png"\1Star Pravah|g' marathi_temp.m3u
-          sed -i 's|tvg-logo="[^"]*"\(.*\)Colors Marathi|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/colorsmarathi.png"\1Colors Marathi|g' marathi_temp.m3u
+          # 5. Filter out the "Accidental" channels (Sony WAH, Sony AATH) from the Marathi Section
+          # We only keep lines that actually belong to your Marathi list
+          grep -Ei "Marathi|Pravah|Yuva|Sahyadri|Talkies|Picture|Majha|Lokmat|Saam|Maharashtra|Lokshahi|Pudhari|Jhakaas|Maiboli|Dagdusheth|Rukmini|Bhavani|Mahalaxmi|MKN" marathi_temp.m3u -A 1 | grep -vE "^--$" | sed 's/group-title="[^"]*"/group-title="Marathi"/g' >> merged_playlist.m3u
 
-          cat marathi_temp.m3u >> merged_playlist.m3u
-
-          # 6. Add "Others" section
+          # 6. Add "Others" section (Everything else)
           echo "## --- OTHERS --- ##" >> merged_playlist.m3u
-          cat temp_raw.m3u >> merged_playlist.m3u
+          # Remove the Marathi channels from the "Others" section so they don't appear twice
+          grep -vEi "Zee Marathi|Star Pravah|Colors Marathi|Sony Marathi|Zee Yuva|Sun Marathi|DD Sahyadri|Fakt Marathi|Zee Talkies|Pravah Picture|Shemaroo Marathibana|Zee Chitramandir|Zee 24 Taas|ABP Majha|News18 Lokmat|NDTV Marathi|TV9 Marathi|Saam TV|Jai Maharashtra|Lokshahi|Pudhari News|9X Jhakaas|Maiboli|Sangeet Marathi|Dagdusheth|Vitthal Rukmini|Tulja Bhavani|Mahalaxmi|MKN Marathi|News State" temp_raw.m3u >> merged_playlist.m3u
 
       - name: Cleanup and Commit
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           
-          # Final cleanup: Remove blank lines
+          # Remove empty lines and fix double headers
           sed -i '/^$/d' merged_playlist.m3u
+          sed -i '/#EXTM3U/d' merged_playlist.m3u
+          sed -i '1i #EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz"' merged_playlist.m3u
+          
           rm -f temp_raw.m3u marathi_temp.m3u
           
           git add merged_playlist.m3u
-          git commit -m "Fixed: Marathi category filtered for exact matches" || exit 0
+          git commit -m "Fixed Marathi filtering - No more Sony WAH/AATH in Marathi cat" || exit 0
           git push
 
