@@ -1,8 +1,8 @@
 name: Merge M3U Playlists
 on:
   schedule:
-    - cron: '0 */1 * * *' # Updates every 6 hours
-  workflow_dispatch:      # Manual trigger
+    - cron: '0 */6 * * *' # Runs every 6 hours
+  workflow_dispatch:      # Allows you to run it manually
 
 jobs:
   merge-job:
@@ -24,23 +24,22 @@ jobs:
           # 3. Add z5 (Remove headers)
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "^#EXTM3U" >> merged_playlist.m3u
 
-          # 4. Add Sony stream (Remove headers)
+          # 4. Add Sony Stream (Remove headers)
           curl -s https://raw.githubusercontent.com/vaathala00/sl/refs/heads/main/stream.m3u | grep -v "^#EXTM3U" >> merged_playlist.m3u
 
-          # 5. Convert JSON to M3U and add it
-          # This pulls the JSON, uses jq to format it, and appends it to your file
+          # 5. Convert JSON to M3U (Updated for Name, Image, and Stream keys)
           curl -s https://raw.githubusercontent.com/DebugDyno/yo_events/4a8ac953d5db100864bd91afd12afda8f7e33f62/sony_livetv.json | \
-          jq -r '.[] | "#EXTINF:-1 tvg-logo=\"\(.logo)\" group-title=\"SonyLIV\", \(.name)\n\(.link)"' >> merged_playlist.m3u
+          jq -r '.data[] | "#EXTINF:-1 tvg-logo=\"\(.image)\" group-title=\"\(.group)\", \(.name)\n\(.stream)"' >> merged_playlist.m3u
 
       - name: Cleanup and Commit
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
           
-          # Remove any potential empty lines
+          # Remove blank lines and fix any Windows-style line endings
           sed -i '/^$/d' merged_playlist.m3u
           
           git add merged_playlist.m3u
-          git commit -m "Auto-update: Added JSON source and refreshed all playlists" || exit 0
+          git commit -m "Auto-update: All sources merged including Sony JSON" || exit 0
           git push
 
