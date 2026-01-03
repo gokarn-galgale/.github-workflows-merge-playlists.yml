@@ -1,8 +1,8 @@
 name: Merge M3U Playlists
 on:
   schedule:
-    - cron: '0 */1 * * *' # Runs every 6 hours
-  workflow_dispatch:      # Allows you to run it manually
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   merge-job:
@@ -15,28 +15,44 @@ jobs:
 
       - name: Fetch and Merge Playlists
         run: |
-          # 1. Start with the M3U Header
-          echo "#EXTM3U" > merged_playlist.m3u
+          # 1. Start with M3U Header including the EPG link
+          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Add jtv (Remove headers)
-          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "^#EXTM3U" >> merged_playlist.m3u
+          # 2. Download sources into a temporary file
+          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "^#EXTM3U" >> temp_raw.m3u
+          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "^#EXTM3U" >> temp_raw.m3u
           
-          # 3. Add z5 (Remove headers)
-          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "^#EXTM3U" >> merged_playlist.m3u
-
-          # 4. Convert JSON to M3U (Updated for Name, Image, and Stream keys)
+          # 3. Add JSON source
           curl -s https://raw.githubusercontent.com/DebugDyno/yo_events/4a8ac953d5db100864bd91afd12afda8f7e33f62/sony_livetv.json | \
-          jq -r '.data[] | "#EXTINF:-1 tvg-logo=\"\(.image)\" group-title=\"\(.group)\", \(.name)\n\(.stream)"' >> merged_playlist.m3u
+          jq -r '.data[] | "#EXTINF:-1 tvg-logo=\"\(.image)\" group-title=\"\(.group)\", \(.name)\n\(.stream)"' >> temp_raw.m3u
+
+          # 4. Marathi Section with Logo Fixer
+          echo "## --- MARATHI --- ##" >> merged_playlist.m3u
+          
+          # Extract Marathi channels, change group to Marathi
+          grep -Ei "Zee Marathi|Star Pravah|Colors Marathi|Sony Marathi|Zee Yuva|Sun Marathi|DD Sahyadri|Fakt Marathi|Zee Talkies|Pravah Picture|Shemaroo Marathibana|Zee Chitramandir|Zee 24 Taas|ABP Majha|News18 Lokmat|NDTV Marathi|TV9 Marathi|Saam TV|Jai Maharashtra|Lokshahi|Pudhari News|9X Jhakaas|Maiboli|Sangeet Marathi|Dagdusheth|Vitthal Rukmini|Tulja Bhavani|Mahalaxmi|MKN Marathi|News State" temp_raw.m3u -A 1 | sed 's/group-title="[^"]*"/group-title="Marathi"/g' > marathi_temp.m3u
+
+          # 5. Apply High-Quality Logos (Logo Fixer)
+          # This replaces generic logos with official network logos
+          sed -i 's|tvg-logo="[^"]*"\(.*\)Zee Marathi|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/zeemarathi.png"\1Zee Marathi|g' marathi_temp.m3u
+          sed -i 's|tvg-logo="[^"]*"\(.*\)Star Pravah|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/starpravah.png"\1Star Pravah|g' marathi_temp.m3u
+          sed -i 's|tvg-logo="[^"]*"\(.*\)Colors Marathi|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/colorsmarathi.png"\1Colors Marathi|g' marathi_temp.m3u
+          sed -i 's|tvg-logo="[^"]*"\(.*\)Zee 24 Taas|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/zee24taas.png"\1Zee 24 Taas|g' marathi_temp.m3u
+          sed -i 's|tvg-logo="[^"]*"\(.*\)ABP Majha|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/abpmajha.png"\1ABP Majha|g' marathi_temp.m3u
+
+          cat marathi_temp.m3u >> merged_playlist.m3u
+
+          # 6. Add the rest of the channels
+          echo "## --- OTHERS --- ##" >> merged_playlist.m3u
+          cat temp_raw.m3u >> merged_playlist.m3u
 
       - name: Cleanup and Commit
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          
-          # Remove blank lines and fix any Windows-style line endings
           sed -i '/^$/d' merged_playlist.m3u
-          
+          rm -f temp_raw.m3u marathi_temp.m3u
           git add merged_playlist.m3u
-          git commit -m "Auto-update: All sources merged including Sony JSON" || exit 0
+          git commit -m "Added EPG support and Logo Fixer for Marathi" || exit 0
           git push
 
