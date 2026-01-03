@@ -15,8 +15,9 @@ jobs:
 
       - name: Fetch and Merge Playlists
         run: |
-          # 1. Start with M3U Header
-          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz"' > merged_playlist.m3u
+          # 1. Start with M3U Header and Multi-Source EPG
+          # Source 1: avkb (Main) | Source 2: dgr8akki (Backup for Indian channels)
+          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://avkb.short.gy/jioepg.xml.gz,https://github.com/whythishome/epg/raw/refs/heads/master/guides/dishtv.in_hi.xml.gz"' > merged_playlist.m3u
           
           # 2. Pool all raw data
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
@@ -24,7 +25,7 @@ jobs:
           curl -s https://raw.githubusercontent.com/DebugDyno/yo_events/4a8ac953d5db100864bd91afd12afda8f7e33f62/sony_livetv.json | \
           jq -r '.data[] | "#EXTINF:-1 tvg-logo=\"\(.image)\" group-title=\"\(.group)\", \(.name)\n\(.stream)"' >> raw_pool.m3u
 
-          # 3. Precise Extraction using Python (No Logo Fixer)
+          # 3. Precise Extraction using Python
           echo "## --- MARATHI --- ##" >> merged_playlist.m3u
           
           python3 - <<EOF
@@ -37,19 +38,24 @@ jobs:
 
           blocks = re.split(r'(?=#EXTINF)', content)
           
+          marathi_blocks = []
+          for block in blocks:
+              if not block.strip(): continue
+              match = re.search(r'#EXTINF:.*?,(.*)', block.split('\n')[0])
+              if match:
+                  found_name = match.group(1).strip()
+                  if found_name in target_channels:
+                      clean_block = "\n".join([line for line in block.split('\n') if line.strip() != "--"])
+                      marathi_blocks.append(clean_block.strip())
+          
+          # Alphabetical Sorting for Marathi category
+          marathi_blocks.sort(key=lambda x: x.split(",")[-1])
+          
           with open("marathi_temp.m3u", "w") as out:
-              for block in blocks:
-                  if not block.strip(): continue
-                  match = re.search(r'#EXTINF:.*?,(.*)', block.split('\n')[0])
-                  if match:
-                      found_name = match.group(1).strip()
-                      if found_name in target_channels:
-                          # Keep original logos and metadata, just remove '--' separators
-                          clean_block = "\n".join([line for line in block.split('\n') if line.strip() != "--"])
-                          out.write(clean_block.strip() + "\n")
+              out.write("\n".join(marathi_blocks) + "\n")
           EOF
 
-          # 4. Update Group Title for Marathi Section
+          # 4. Update Group Title
           sed -i 's/group-title="[^"]*"/group-title="Marathi"/g' marathi_temp.m3u
           cat marathi_temp.m3u >> merged_playlist.m3u
 
@@ -64,6 +70,6 @@ jobs:
           sed -i '/^$/d' merged_playlist.m3u
           rm -f raw_pool.m3u marathi_temp.m3u
           git add merged_playlist.m3u
-          git commit -m "Merged playlists without logo fixer - Exact Marathi matching" || exit 0
+          git commit -m "Added Master EPG (Multi-Source) and Alphabetical Sorting" || exit 0
           git push
 
