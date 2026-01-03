@@ -15,59 +15,45 @@ jobs:
 
       - name: Fetch and Merge Playlists
         run: |
-          # 1. Start with Clean Header
+          # 1. Start with M3U Header
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Download and Pool all raw data
+          # 2. Pool all raw data
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/DebugDyno/yo_events/4a8ac953d5db100864bd91afd12afda8f7e33f62/sony_livetv.json | \
           jq -r '.data[] | "#EXTINF:-1 tvg-logo=\"\(.image)\" group-title=\"\(.group)\", \(.name)\n\(.stream)"' >> raw_pool.m3u
 
-          # 3. Smart Extraction of Marathi Channels
+          # 3. Precise Extraction using Python (No Logo Fixer)
           echo "## --- MARATHI --- ##" >> merged_playlist.m3u
           
-          # This python script ensures we grab the ENTIRE block for Marathi channels only
           python3 - <<EOF
-          marathi_names = ["Zee Marathi", "Star Pravah", "Colors Marathi", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Pravah Picture", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth", "Vitthal Rukmini", "Tulja Bhavani", "Mahalaxmi", "MKN Marathi", "News State"]
+          import re
+          
+          target_channels = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
           with open("raw_pool.m3u", "r") as f:
-              lines = f.readlines()
+              content = f.read()
+
+          blocks = re.split(r'(?=#EXTINF)', content)
           
           with open("marathi_temp.m3u", "w") as out:
-              i = 0
-              while i < len(lines):
-                  if lines[i].startswith("#EXTINF"):
-                      block = [lines[i]]
-                      j = i + 1
-                      while j < len(lines) and not lines[j].startswith("#EXTINF"):
-                          if lines[j].strip() != "--":
-                              block.append(lines[j])
-                          j += 1
-                      
-                      # Check if ANY of our Marathi names are in the #EXTINF line
-                      if any(name.lower() in lines[i].lower() for name in marathi_names):
-                          # Strict check to avoid "Zee Punjabi" being caught by "Zee Marathi"
-                          # We check if the exact name follows the comma
-                          channel_name_part = lines[i].split(",")[-1].strip()
-                          if any(name.lower() == channel_name_part.lower() or name.lower() + " hd" == channel_name_part.lower() for name in marathi_names):
-                              out.write("".join(block))
-                      i = j
-                  else:
-                      i += 1
+              for block in blocks:
+                  if not block.strip(): continue
+                  match = re.search(r'#EXTINF:.*?,(.*)', block.split('\n')[0])
+                  if match:
+                      found_name = match.group(1).strip()
+                      if found_name in target_channels:
+                          # Keep original logos and metadata, just remove '--' separators
+                          clean_block = "\n".join([line for line in block.split('\n') if line.strip() != "--"])
+                          out.write(clean_block.strip() + "\n")
           EOF
 
-          # 4. Fix Group Title and Logos for the Marathi section
+          # 4. Update Group Title for Marathi Section
           sed -i 's/group-title="[^"]*"/group-title="Marathi"/g' marathi_temp.m3u
-          
-          # Logo Fixer
-          sed -i 's|tvg-logo="[^"]*"\(.*\)Zee Marathi|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/zeemarathi.png"\1Zee Marathi|g' marathi_temp.m3u
-          sed -i 's|tvg-logo="[^"]*"\(.*\)Star Pravah|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/starpravah.png"\1Star Pravah|g' marathi_temp.m3u
-          sed -i 's|tvg-logo="[^"]*"\(.*\)Colors Marathi|tvg-logo="https://raw.githubusercontent.com/pali94/Marathitv/main/logos/colorsmarathi.png"\1Colors Marathi|g' marathi_temp.m3u
-          
           cat marathi_temp.m3u >> merged_playlist.m3u
 
-          # 5. Add "Others" section
+          # 5. Add Others Section
           echo "## --- OTHERS --- ##" >> merged_playlist.m3u
           cat raw_pool.m3u >> merged_playlist.m3u
 
@@ -75,12 +61,9 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          
-          # Remove artifacts and blank lines
           sed -i '/^$/d' merged_playlist.m3u
           rm -f raw_pool.m3u marathi_temp.m3u
-          
           git add merged_playlist.m3u
-          git commit -m "Fixed Marathi extraction logic using Python script" || exit 0
+          git commit -m "Merged playlists without logo fixer - Exact Marathi matching" || exit 0
           git push
-          
+
