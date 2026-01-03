@@ -1,0 +1,34 @@
+name: Merge M3U Playlists
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Runs every 6 hours
+  workflow_dispatch:      # Allows you to click a button to run it manually
+
+jobs:
+  merge-job:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout your repo
+        uses: actions/checkout@v4
+
+      - name: Merge Files
+        run: |
+          # Create a header for the new file
+          echo "#EXTM3U" > merged_playlist.m3u
+          
+          # Download and append first file (skipping the first #EXTM3U line to avoid duplicates)
+          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "^#EXTM3U" >> merged_playlist.m3u
+          
+          # Download and append second file (skipping the first #EXTM3U line)
+          curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "^#EXTM3U" >> merged_playlist.m3u
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add merged_playlist.m3u
+          git commit -m "Auto-update: Merged jtv and z5 playlists" || exit 0
+          git push
+          
