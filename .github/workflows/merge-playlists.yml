@@ -15,9 +15,8 @@ jobs:
 
       - name: Fetch and Merge Playlists
         run: |
-          # 1. Start with M3U Header and Multi-Source EPG
-          # Source 1: avkb (Main) | Source 2: dgr8akki (Backup for Indian channels)
-          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://avkb.short.gy/jioepg.xml.gz,https://github.com/whythishome/epg/raw/refs/heads/master/guides/dishtv.in_hi.xml.gz"' > merged_playlist.m3u
+          # 1. Start with Header and Multi-EPG
+          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
           # 2. Pool all raw data
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
@@ -30,45 +29,53 @@ jobs:
           python3 - <<EOF
           import re
           
+          # Your requested Marathi list
           target_channels = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
           with open("raw_pool.m3u", "r") as f:
               content = f.read()
 
+          # Split by #EXTINF
           blocks = re.split(r'(?=#EXTINF)', content)
           
           marathi_blocks = []
           for block in blocks:
               if not block.strip(): continue
-              match = re.search(r'#EXTINF:.*?,(.*)', block.split('\n')[0])
+              lines = block.strip().split('\n')
+              header_line = lines[0]
+              
+              # Extract name after the last comma
+              match = re.search(r',([^,]*)$', header_line)
               if match:
                   found_name = match.group(1).strip()
-                  if found_name in target_channels:
-                      clean_block = "\n".join([line for line in block.split('\n') if line.strip() != "--"])
-                      marathi_blocks.append(clean_block.strip())
+                  # Case-insensitive matching to catch "SONY MARATHI"
+                  if any(name.lower() == found_name.lower() for name in target_channels):
+                      # Remove the "--" separators if they exist
+                      clean_lines = [l for l in lines if l.strip() != "--"]
+                      marathi_blocks.append("\n".join(clean_lines))
           
-          # Alphabetical Sorting for Marathi category
-          marathi_blocks.sort(key=lambda x: x.split(",")[-1])
+          # Alphabetical Sorting
+          marathi_blocks.sort(key=lambda x: x.split(",")[-1].strip().lower())
           
           with open("marathi_temp.m3u", "w") as out:
               out.write("\n".join(marathi_blocks) + "\n")
           EOF
 
-          # 4. Update Group Title
+          # 4. Finalize the Marathi category
           sed -i 's/group-title="[^"]*"/group-title="Marathi"/g' marathi_temp.m3u
           cat marathi_temp.m3u >> merged_playlist.m3u
 
-          # 5. Add Others Section
+          # 5. Add everything else
           echo "## --- OTHERS --- ##" >> merged_playlist.m3u
           cat raw_pool.m3u >> merged_playlist.m3u
 
       - name: Cleanup and Commit
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           rm -f raw_pool.m3u marathi_temp.m3u
           git add merged_playlist.m3u
-          git commit -m "Added Master EPG (Multi-Source) and Alphabetical Sorting" || exit 0
+          git commit -m "Auto-refresh: Supported Sony caps format & Marathi extraction" || exit 0
           git push
 
