@@ -22,8 +22,7 @@ jobs:
           # 2. Pool all raw data
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
-          curl -s https://raw.githubusercontent.com/DebugDyno/yo_events/4a8ac953d5db100864bd91afd12afda8f7e33f62/sony_livetv.json | \
-          jq -r '.data[] | "#EXTINF:-1 tvg-logo=\"\(.image)\" group-title=\"\(.group)\", \(.name)\n\(.stream)"' >> raw_pool.m3u
+          curl -s https://raw.githubusercontent.com/vaathala00/sl/refs/heads/main/stream.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
 
           # 3. Precise Extraction using Python
           echo "## --- MARATHI --- ##" >> merged_playlist.m3u
