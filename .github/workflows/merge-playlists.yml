@@ -1,7 +1,7 @@
 name: Merge M3U Playlists
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -29,13 +29,11 @@ jobs:
           python3 - <<EOF
           import re
           
-          # Your requested Marathi list
           target_channels = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
           with open("raw_pool.m3u", "r") as f:
               content = f.read()
 
-          # Split by #EXTINF
           blocks = re.split(r'(?=#EXTINF)', content)
           
           marathi_blocks = []
@@ -44,17 +42,13 @@ jobs:
               lines = block.strip().split('\n')
               header_line = lines[0]
               
-              # Extract name after the last comma
               match = re.search(r',([^,]*)$', header_line)
               if match:
                   found_name = match.group(1).strip()
-                  # Case-insensitive matching to catch "SONY MARATHI"
                   if any(name.lower() == found_name.lower() for name in target_channels):
-                      # Remove the "--" separators if they exist
                       clean_lines = [l for l in lines if l.strip() != "--"]
                       marathi_blocks.append("\n".join(clean_lines))
           
-          # Alphabetical Sorting
           marathi_blocks.sort(key=lambda x: x.split(",")[-1].strip().lower())
           
           with open("marathi_temp.m3u", "w") as out:
@@ -76,6 +70,6 @@ jobs:
           sed -i '/^$/d' merged_playlist.m3u
           rm -f raw_pool.m3u marathi_temp.m3u
           git add merged_playlist.m3u
-          git commit -m "Auto-refresh: Supported Sony caps format & Marathi extraction" || exit 0
+          git commit -m "Auto-refresh (30m): Playlist update" || exit 0
           git push
 
