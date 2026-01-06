@@ -1,7 +1,7 @@
 name: Merge M3U Playlists
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -18,12 +18,12 @@ jobs:
           # 1. Start with Header and Multi-EPG
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Pool all raw data
+          # 2. Pool all raw data (Order matters: jtv is 1, z5 is 2, stream is 3)
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/vaathala00/sl/refs/heads/main/stream.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
 
-          # 3. Precise Extraction using Python
+          # 3. Precise Extraction using Python (With Priority & Deduplication)
           echo "## --- MARATHI --- ##" >> merged_playlist.m3u
           
           python3 - <<EOF
@@ -37,6 +37,8 @@ jobs:
           blocks = re.split(r'(?=#EXTINF)', content)
           
           marathi_blocks = []
+          seen_channels = set()  # This tracks channels already added
+          
           for block in blocks:
               if not block.strip(): continue
               lines = block.strip().split('\n')
@@ -45,10 +47,16 @@ jobs:
               match = re.search(r',([^,]*)$', header_line)
               if match:
                   found_name = match.group(1).strip()
-                  if any(name.lower() == found_name.lower() for name in target_channels):
-                      clean_lines = [l for l in lines if l.strip() != "--"]
-                      marathi_blocks.append("\n".join(clean_lines))
+                  name_lower = found_name.lower()
+                  
+                  # Check if it's a target channel AND hasn't been added yet
+                  if any(target.lower() == name_lower for target in target_channels):
+                      if name_lower not in seen_channels:
+                          clean_lines = [l for l in lines if l.strip() != "--"]
+                          marathi_blocks.append("\n".join(clean_lines))
+                          seen_channels.add(name_lower) # Mark as added
           
+          # Alphabetical Sorting
           marathi_blocks.sort(key=lambda x: x.split(",")[-1].strip().lower())
           
           with open("marathi_temp.m3u", "w") as out:
@@ -70,6 +78,6 @@ jobs:
           sed -i '/^$/d' merged_playlist.m3u
           rm -f raw_pool.m3u marathi_temp.m3u
           git add merged_playlist.m3u
-          git commit -m "Auto-refresh (30m): Playlist update" || exit 0
+          git commit -m "Auto-refresh (30m): Fixed deduplication & priority" || exit 0
           git push
 
