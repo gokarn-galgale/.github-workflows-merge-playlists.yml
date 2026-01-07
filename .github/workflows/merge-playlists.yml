@@ -1,7 +1,7 @@
 name: Merge M3U Playlists
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -18,66 +18,73 @@ jobs:
           # 1. Start with Header and Multi-EPG
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Pool all raw data (Order matters: jtv is 1, z5 is 2, stream is 3)
+          # 2. Pool all raw data (Priority: 1. JTV, 2. Z5, 3. Stream)
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/vaathala00/sl/refs/heads/main/stream.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
 
-          # 3. Precise Extraction using Python (With Priority & Deduplication)
-          echo "## --- MARATHI --- ##" >> merged_playlist.m3u
-          
+          # 3. Global Deduplication and Marathi Categorization using Python
           python3 - <<EOF
           import re
-          
-          target_channels = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
+
+          target_marathi = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
           with open("raw_pool.m3u", "r") as f:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
           
+          seen_names = set()
           marathi_blocks = []
-          seen_channels = set()  # This tracks channels already added
-          
+          other_blocks = []
+
           for block in blocks:
               if not block.strip(): continue
               lines = block.strip().split('\n')
-              header_line = lines[0]
+              header = lines[0]
               
-              match = re.search(r',([^,]*)$', header_line)
-              if match:
-                  found_name = match.group(1).strip()
-                  name_lower = found_name.lower()
+              # Find the name (text after the last comma)
+              name_match = re.search(r',([^,]*)$', header)
+              if name_match:
+                  channel_name = name_match.group(1).strip()
+                  name_key = channel_name.lower()
+
+                  # DEDUPLICATION LOGIC: Skip if already added from a higher priority source
+                  if name_key in seen_names:
+                      continue
+                  seen_names.add(name_key)
+
+                  # Clean block and check if it belongs to Marathi group
+                  clean_block = "\n".join([l for l in lines if l.strip() != "--"])
                   
-                  # Check if it's a target channel AND hasn't been added yet
-                  if any(target.lower() == name_lower for target in target_channels):
-                      if name_lower not in seen_channels:
-                          clean_lines = [l for l in lines if l.strip() != "--"]
-                          marathi_blocks.append("\n".join(clean_lines))
-                          seen_channels.add(name_lower) # Mark as added
-          
-          # Alphabetical Sorting
+                  if any(m.lower() == name_key for m in target_marathi):
+                      # Force Marathi Group
+                      modified_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', clean_block)
+                      marathi_blocks.append(modified_block)
+                  else:
+                      other_blocks.append(clean_block)
+
+          # Sort Marathi Category
           marathi_blocks.sort(key=lambda x: x.split(",")[-1].strip().lower())
-          
-          with open("marathi_temp.m3u", "w") as out:
+
+          # Write Final File
+          with open("merged_playlist.m3u", "a") as out:
+              out.write("## --- MARATHI --- ##\n")
               out.write("\n".join(marathi_blocks) + "\n")
+              out.write("## --- OTHERS --- ##\n")
+              out.write("\n".join(other_blocks) + "\n")
           EOF
-
-          # 4. Finalize the Marathi category
-          sed -i 's/group-title="[^"]*"/group-title="Marathi"/g' marathi_temp.m3u
-          cat marathi_temp.m3u >> merged_playlist.m3u
-
-          # 5. Add everything else
-          echo "## --- OTHERS --- ##" >> merged_playlist.m3u
-          cat raw_pool.m3u >> merged_playlist.m3u
 
       - name: Cleanup and Commit
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Final cleanup: Remove empty lines
           sed -i '/^$/d' merged_playlist.m3u
-          rm -f raw_pool.m3u marathi_temp.m3u
+          rm -f raw_pool.m3u
+          
           git add merged_playlist.m3u
-          git commit -m "Auto-refresh (30m): Fixed deduplication & priority" || exit 0
+          git commit -m "Auto-refresh: Global deduplication applied to all channels" || exit 0
           git push
 
