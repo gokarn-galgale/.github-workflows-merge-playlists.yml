@@ -71,7 +71,7 @@ https://jiotvpllive.cdn.jio.com/bpk-tv/Sangeet_Marathi_BTS/output/index.mpd?__hd
 #EXTHTTP:{"cookie":"__hdnea__=st=1767789196~exp=1767875596~acl=/*~hmac=ffed1cbe38d7799e3c949d5ee2873274873eb13a0acd5c031fe79b2e0d9ae7a1"}
 https://jiotvpllive.cdn.jio.com/bpk-tv/Shemaroo_MarathiBana_BTS/output/index.mpd?__hdnea__=st=1767789196~exp=1767875596~acl=/*~hmac=ffed1cbe38d7799e3c949d5ee2873274873eb13a0acd5c031fe79b2e0d9ae7a1&xxx=%7Ccookie=__hdnea__=st=1767789196~exp=1767875596~acl=/*~hmac=ffed1cbe38d7799e3c949d5ee2873274873eb13a0acd5c031fe79b2e0d9ae7a1
 #EXTINF:-1 tvg-id="1000009259" tvg-name="SONY MARATHI" group-title="Marathi" tvg-language="Marathi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Sony_Marathi_SD.png",SONY MARATHI
-https://dishmt.slivcdn.com/hls/live/2011740-b/SonyMarathi/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2011740-b/SonyMarathi/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1121" group-title="Marathi" tvg-logo="https://jiotv.catchup.cdn.jio.com/dare_images/images/Star_Pravah.png",Star Pravah
 #KODIPROP:inputstream.adaptive.license_type=clearkey
 #KODIPROP:inputstream.adaptive.license_key=3fb941b7c6fe54fb8f66b19804eff952:c1b742ed7b6d4eca1c6bdcb9041d9b80
@@ -5902,22 +5902,22 @@ https://aasthaott.akamaized.net/110923/smil:aasthatamil.smil/playlist.m3u8?hdntl
 #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 ygx/69.1 Safari/537.36
 https://aasthaott.akamaized.net/110923/smil:arihant.smil/playlist.m3u8?hdntl=exp=1767876353~acl=%2f*~id=23a8e3a7-6ce4-4eab-9eb4-3bd764ec096e~data=hdntl~hmac=44e67bb9050a0c1ca0d7817ee0bddd7cf390afc1bb726bfc1d9224ee7d9db044
 #EXTINF:-1 tvg-id="1000009246" tvg-name="SONY HD" group-title="Entertainment" tvg-language="Hindi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Sony_HD.png",SONY HD
-https://dishmt.slivcdn.com/hls/live/2011671-b/SETHD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2011671-b/SETHD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000009248" tvg-name="SAB HD" group-title="Entertainment" tvg-language="Hindi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Sony_SAB_HD.png",SAB HD
-https://dishmt.slivcdn.com/hls/live/2011749-b/SABHD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2011749-b/SABHD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000001971" tvg-name="SONY YAY" group-title="Kids" tvg-language="Hindi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Sony_Yay_Hindi.png",SONY YAY
-https://dishmt.slivcdn.com/hls/live/2011746-b/SonyYaySD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2011746-b/SonyYaySD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000009249" tvg-name="SONY MAX" group-title="Movies" tvg-language="Hindi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Sony_Max_SD.png",SONY MAX
-https://dishmt.slivcdn.com/hls/live/2011745-b/SonyMaxSD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2011745-b/SonyMaxSD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000009279" tvg-name="SONY TEN 2" group-title="Sports" tvg-language="English" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Ten2_HD.png",SONY TEN 2
-https://dishmt.slivcdn.com/hls/live/2020590-b/TEN2SD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2020590-b/TEN2SD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000009278" tvg-name="SONY TEN 3 HD" group-title="Sports" tvg-language="Hindi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Ten3_HD.png",SONY TEN 3 HD
-https://dishmt.slivcdn.com/hls/live/2020591-b/TEN3HD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2020591-b/TEN3HD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000009283" tvg-name="SONY TEN 3" group-title="Sports" tvg-language="Hindi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Ten3_HD.png",SONY TEN 3
-https://dishmt.slivcdn.com/hls/live/2020592-b/TEN3SD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2020592-b/TEN3SD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000119186" tvg-name="SONY TEN 4 HD" group-title="Sports" tvg-language="Hindi" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Ten_4_HD_Telugu.png",SONY TEN 4 HD
-https://dishmt.slivcdn.com/hls/live/2020589-b/ten4hd/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2020589-b/ten4hd/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000119187" tvg-name="SONY TEN 4" group-title="Sports" tvg-language="Telugu" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Ten_4_Telugu.png",SONY TEN 4
-https://dishmt.slivcdn.com/hls/live/2020437-b/ten4sd/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2020437-b/ten4sd/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
 #EXTINF:-1 tvg-id="1000009252" tvg-name="BBC EARTH" group-title="Infotainment" tvg-language="English" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/Sony_BBC_Earth_HD.png",BBC EARTH
-https://dishmt.slivcdn.com/hls/live/2011907-b/SonyBBCEarthHD/master.m3u8?hdnea=exp=1767810601~acl=/*~id=744d8aaaf2ef7010ab5ba49ee0be08f5-1767767400146~hmac=696d4ca8e9a1743b083052566c4145c4b1ccab2e2eeedb149ec6e9e599a64e76
+https://dishmt.slivcdn.com/hls/live/2011907-b/SonyBBCEarthHD/master.m3u8?hdnea=exp=1767832201~acl=/*~id=fddc13e0e61d91a0435d9ea660d6eaa8-1767789000165~hmac=b351bb33655064f41d24a80574a67e48166e62eb232248956cb93a005250b523
