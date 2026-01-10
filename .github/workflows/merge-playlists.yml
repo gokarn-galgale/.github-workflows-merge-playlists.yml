@@ -30,15 +30,13 @@ jobs:
 
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # Categories to keep
+          # Keywords to keep
           allowed_keywords = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
-          
-          # master_list = { "channel name": { "score": int, "block": str } }
           master_list = {}
 
           for block in blocks:
@@ -56,26 +54,32 @@ jobs:
               if not any(k in raw_group.lower() for k in allowed_keywords) and "jiotv+" not in raw_group.lower():
                   continue
 
-              # Calculate Score
-              # Base: TataPlay=30, Jio=20, Others=10
-              score = 10
-              if "tataplay" in raw_group.lower(): score = 30
-              elif "jiotv" in raw_group.lower(): score = 20
+              # --- SMART CATEGORY CLEANER ---
+              # This removes "JioTv📺", "JioTv+➕", "Tataplay🎭" and any symbols at the start
+              # It looks for the part after the emoji or prefix
+              new_group = raw_group
+              # Pattern matches Prefix + Emoji/Symbol + Category Name
+              clean_pattern = r'^(?:JioTv|Tataplay|RunnTV|Waves|LG).*?[📺➕🎭🏃🎬]\s*(.*)'
+              match = re.match(clean_pattern, raw_group, re.IGNORECASE)
+              if match:
+                  new_group = match.group(1).strip()
+              else:
+                  # Fallback: remove common prefixes if emoji pattern doesn't match
+                  new_group = re.sub(r'^(jiotv(\+)?|tataplay).*?(\||:|-)\s*', '', raw_group, flags=re.IGNORECASE)
               
-              # Catch-up Bonus: Add 5 points if catchup is available
+              new_group = new_group.strip().capitalize() if new_group else "General"
+
+              # --- SCORING SYSTEM ---
+              # Base: TataPlay (20), Jio (10)
+              score = 10
+              if "tataplay" in raw_group.lower(): score = 20
+              
+              # CATCHUP PRIORITY: Huge bonus (+50) so Catchup ALWAYS wins over Source
               if any(x in header.lower() for x in ['catchup="default"', 'catchup-days=', 'catchup-source=']):
-                  score += 5
+                  score += 50
 
-              # Clean the group name: 
-              # Remove "JioTV | " or "JioTv+ | " to merge into TataPlay categories
-              new_group = re.sub(r'jiotv(\+)?\s*\|\s*', '', raw_group, flags=re.IGNORECASE)
-              new_group = re.sub(r'tataplay\s*\|\s*', '', new_group, flags=re.IGNORECASE)
-              # Ensure first letter is uppercase for clean look
-              new_group = new_group.strip().capitalize()
-
-              # Priority Logic
+              # Deduplication Logic
               if name_key not in master_list or score > master_list[name_key]["score"]:
-                  # Update the block with the cleaned group title
                   updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
                   master_list[name_key] = {"score": score, "block": updated_block}
 
@@ -91,6 +95,7 @@ jobs:
                   others_out.append(block)
 
           marathi_out.sort(key=lambda x: x.split(",")[-1].strip().lower())
+          # Sort others by Category then Name
           others_out.sort(key=lambda x: (re.search(r'group-title="([^"]*)"', x).group(1) if re.search(r'group-title="([^"]*)"', x) else "", x.split(",")[-1]))
 
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
@@ -106,5 +111,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Merged JioTV into TataPlay categories with catchup priority" || exit 0
+          git commit -m "Fixed emoji-category merging and set Catchup as top priority" || exit 0
           git push
