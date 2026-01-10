@@ -1,4 +1,4 @@
-name: Merge JokerTV Specific
+name: Merge JokerTV Priority
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -16,19 +16,13 @@ jobs:
       - name: Fetch JokerTV
         run: |
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
-          
           wget --max-redirect=20 \
                --user-agent="TiviMate/4.7.1 (NVIDIA SHIELD TV Pro; Android 11)" \
                --timeout=60 --tries=5 \
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
-               -O raw_pool.m3u || echo "Download failed"
+               -O raw_pool.m3u
 
-          if [[ ! -s raw_pool.m3u ]] || grep -q "<!DOCTYPE html>" raw_pool.m3u; then
-            echo "ERROR: Data fetch failed."
-            exit 1
-          fi
-
-      - name: Filter and Organize Categories
+      - name: Process Priority and Catchup
         run: |
           python3 - <<EOF
           import re
@@ -36,60 +30,69 @@ jobs:
 
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # Target keywords to keep
           allowed_keywords = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
-          marathi_out = []
-          others_out = []
-          seen_channels = set()
+          
+          # We use a dictionary to store the 'best' version of each channel found
+          # Dictionary structure: { "channel name": { "priority": int, "has_catchup": bool, "data": str } }
+          master_list = {}
 
           for block in blocks:
               block = block.strip()
               if not block or "#EXTM3U" in block: continue
               
-              lines = block.split('\n')
-              header = lines[0]
-              
-              # Extract Group and Name
+              header = block.split('\n')[0]
               group_match = re.search(r'group-title="([^"]*)"', header, re.IGNORECASE)
               name_match = re.search(r',([^,]*)$', header)
               
-              raw_group = group_match.group(1) if group_match else "Uncategorized"
-              current_name = name_match.group(1).strip() if name_match else "Unknown"
-              name_key = current_name.lower()
+              group = group_match.group(1) if group_match else ""
+              name = name_match.group(1).strip() if name_match else ""
+              name_key = name.lower()
 
-              # Check if it's one of your allowed sources
-              is_allowed = any(k in raw_group.lower() for k in allowed_keywords)
+              if not any(k in group.lower() for k in allowed_keywords) and "jiotv+" not in group.lower():
+                  continue
 
-              if is_allowed:
-                  # Deduplication: Priority to the first source found
-                  if name_key in seen_channels:
-                      continue
-                  seen_channels.add(name_key)
-                  
-                  # Logic: Rename "JioTv+" to "JioTV" but KEEP the sub-category
-                  # Example: "JioTv+ | Sports" -> "JioTV | Sports"
-                  new_group = re.sub(r'jiotv\+', 'JioTV', raw_group, flags=re.IGNORECASE)
-                  
-                  # Apply the new group to the block
-                  clean_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
+              # Assign Priority Score: TataPlay (3), Jio (2), others (1)
+              score = 1
+              if "tataplay" in group.lower(): score = 3
+              elif "jiotv" in group.lower(): score = 2
+              
+              # Check for Catchup
+              has_catchup = any(x in header.lower() for x in ['catchup="default"', 'catchup-days=', 'catchup-source='])
 
-                  # Marathi Priority Check
-                  if any(t.lower() == name_key for t in marathi_targets):
-                      marathi_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', clean_block)
-                      marathi_out.append(marathi_block)
-                  else:
-                      others_out.append(clean_block)
+              # Logic: Update master_list if this version is better
+              if name_key not in master_list:
+                  master_list[name_key] = {"priority": score, "catchup": has_catchup, "block": block}
+              else:
+                  existing = master_list[name_key]
+                  # Priority 1: High source score (TataPlay > Jio)
+                  # Priority 2: If same source, pick the one with catchup
+                  if score > existing["priority"]:
+                      master_list[name_key] = {"priority": score, "catchup": has_catchup, "block": block}
+                  elif score == existing["priority"] and has_catchup and not existing["catchup"]:
+                      master_list[name_key] = {"priority": score, "catchup": has_catchup, "block": block}
 
-          # Sort Marathi Category
+          marathi_out = []
+          others_out = []
+
+          for name_key, info in master_list.items():
+              block = info["block"]
+              
+              # Clean up JioTV+ tags in groups for final display
+              block = re.sub(r'jiotv\+', 'JioTV', block, flags=re.IGNORECASE)
+              
+              if any(t.lower() == name_key for t in marathi_targets):
+                  mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
+                  marathi_out.append(mod_block)
+              else:
+                  others_out.append(block)
+
           marathi_out.sort(key=lambda x: x.split(",")[-1].strip().lower())
-          
-          # Sort Others by Group then Name for a cleaner TV guide
-          others_out.sort(key=lambda x: (re.search(r'group-title="([^"]*)"', x).group(1), x.split(",")[-1]))
+          others_out.sort(key=lambda x: (re.search(r'group-title="([^"]*)"', x).group(1) if re.search(r'group-title="([^"]*)"', x) else "", x.split(",")[-1]))
 
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
               if marathi_out:
@@ -98,11 +101,11 @@ jobs:
                   out.write("\n## --- CATEGORIES --- ##\n" + "\n".join(others_out) + "\n")
           EOF
 
-      - name: Push Changes
+      - name: Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Merged JioTV+ into JioTV while preserving sub-categories" || exit 0
+          git commit -m "Applied TataPlay-Jio Priority with Catchup Logic" || exit 0
           git push
