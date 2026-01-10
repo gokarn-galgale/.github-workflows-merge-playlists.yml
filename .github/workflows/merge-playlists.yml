@@ -17,69 +17,82 @@ jobs:
         run: |
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
-          # Use TiviMate User-Agent to bypass Telegram redirect
           wget --max-redirect=20 \
                --user-agent="TiviMate/4.7.1 (NVIDIA SHIELD TV Pro; Android 11)" \
-               --timeout=60 \
-               --tries=5 \
+               --timeout=60 --tries=5 \
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u || echo "Download failed"
 
           if [[ ! -s raw_pool.m3u ]] || grep -q "<!DOCTYPE html>" raw_pool.m3u; then
-            echo "ERROR: Could not fetch M3U data. Server blocked or redirected to HTML."
+            echo "ERROR: Could not fetch M3U data."
             exit 1
           fi
 
-      - name: Filter Categories
+      - name: Filter and Merge Categories
         run: |
           python3 - <<EOF
           import re
           import os
 
-          # 1. Your Marathi Priority List
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # 2. Your Allowed Categories (Keywords)
-          allowed_cats = ["tataplay", "jiotv", "runntv", "lg movies", "waves ott"]
+          # Categories to keep
+          allowed_cats = ["tataplay", "jiotv", "jiotv+", "runntv", "lg movies", "waves ott"]
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
+          
+          seen_names = set()
           marathi_out = []
+          jiotv_merged = []
           others_out = []
 
-          for block in blocks:
+          # Two-pass system: 1st pass for JioTV (High Priority), 2nd for JioTV+ and others
+          # To ensure priority, we sort the blocks based on JioTV existence
+          ordered_blocks = sorted(blocks, key=lambda b: 0 if 'group-title="JioTV"' in b and 'JioTV+' not in b else 1)
+
+          for block in ordered_blocks:
               block = block.strip()
               if not block or "#EXTM3U" in block: continue
               
-              # Extract Group and Name
               group_match = re.search(r'group-title="([^"]*)"', block, re.IGNORECASE)
               name_match = re.search(r',([^,]*)$', block.split('\n')[0])
               
-              current_group = group_match.group(1).lower() if group_match else ""
-              current_name = name_match.group(1).strip() if name_match else ""
+              c_group = group_match.group(1).lower() if group_match else ""
+              c_name = name_match.group(1).strip() if name_match else ""
+              name_key = c_name.lower()
 
-              # Check if the block belongs to your allowed categories
-              is_allowed_cat = any(cat in current_group for cat in allowed_cats)
-              
-              if is_allowed_cat:
-                  # Separate Marathi channels regardless of their JokerTV category
-                  if any(t.lower() == current_name.lower() for t in marathi_targets):
-                      # Force group to Marathi
+              if any(cat in c_group for cat in allowed_cats):
+                  # Skip if we already added this channel from a higher priority source
+                  if name_key in seen_names:
+                      continue
+                  
+                  # Deduplicate across the whole file
+                  seen_names.add(name_key)
+
+                  # 1. Process Marathi Priority
+                  if any(t.lower() == name_key for t in marathi_targets):
                       mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
                       marathi_out.append(mod_block)
+                  
+                  # 2. Process JioTV & JioTV+ Merge
+                  elif "jiotv" in c_group:
+                      mod_block = re.sub(r'group-title="[^"]*"', 'group-title="JioTV"', block)
+                      jiotv_merged.append(mod_block)
+                  
+                  # 3. Process Other Categories (TataPlay, LG, etc.)
                   else:
                       others_out.append(block)
 
-          # Sort Marathi Category
+          # Sort outputs
           marathi_out.sort(key=lambda x: x.split(",")[-1].strip().lower())
 
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
-              if marathi_out:
-                  out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_out) + "\n")
-              if others_out:
-                  out.write("\n## --- SELECTED CATEGORIES --- ##\n" + "\n".join(others_out) + "\n")
+              out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_out) + "\n")
+              out.write("\n## --- JIO TV --- ##\n" + "\n".join(jiotv_merged) + "\n")
+              out.write("\n## --- OTHERS --- ##\n" + "\n".join(others_out) + "\n")
           EOF
 
       - name: Push Changes
@@ -88,5 +101,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "JokerTV: Filtered by TataPlay, Jio, Runn, LG, Waves" || exit 0
+          git commit -m "Merged JioTV & JioTV+ with priority" || exit 0
           git push
