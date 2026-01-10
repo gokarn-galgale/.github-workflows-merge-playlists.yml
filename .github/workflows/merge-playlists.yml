@@ -1,4 +1,4 @@
-name: Merge JokerTV Priority
+name: Merge JokerTV Specific
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -22,7 +22,7 @@ jobs:
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u
 
-      - name: Process Priority and Catchup
+      - name: Process Merge and Catchup
         run: |
           python3 - <<EOF
           import re
@@ -30,6 +30,7 @@ jobs:
 
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
+          # Categories to keep
           allowed_keywords = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
@@ -37,8 +38,7 @@ jobs:
 
           blocks = re.split(r'(?=#EXTINF)', content)
           
-          # We use a dictionary to store the 'best' version of each channel found
-          # Dictionary structure: { "channel name": { "priority": int, "has_catchup": bool, "data": str } }
+          # master_list = { "channel name": { "score": int, "block": str } }
           master_list = {}
 
           for block in blocks:
@@ -49,42 +49,41 @@ jobs:
               group_match = re.search(r'group-title="([^"]*)"', header, re.IGNORECASE)
               name_match = re.search(r',([^,]*)$', header)
               
-              group = group_match.group(1) if group_match else ""
+              raw_group = group_match.group(1) if group_match else ""
               name = name_match.group(1).strip() if name_match else ""
               name_key = name.lower()
 
-              if not any(k in group.lower() for k in allowed_keywords) and "jiotv+" not in group.lower():
+              if not any(k in raw_group.lower() for k in allowed_keywords) and "jiotv+" not in raw_group.lower():
                   continue
 
-              # Assign Priority Score: TataPlay (3), Jio (2), others (1)
-              score = 1
-              if "tataplay" in group.lower(): score = 3
-              elif "jiotv" in group.lower(): score = 2
+              # Calculate Score
+              # Base: TataPlay=30, Jio=20, Others=10
+              score = 10
+              if "tataplay" in raw_group.lower(): score = 30
+              elif "jiotv" in raw_group.lower(): score = 20
               
-              # Check for Catchup
-              has_catchup = any(x in header.lower() for x in ['catchup="default"', 'catchup-days=', 'catchup-source='])
+              # Catch-up Bonus: Add 5 points if catchup is available
+              if any(x in header.lower() for x in ['catchup="default"', 'catchup-days=', 'catchup-source=']):
+                  score += 5
 
-              # Logic: Update master_list if this version is better
-              if name_key not in master_list:
-                  master_list[name_key] = {"priority": score, "catchup": has_catchup, "block": block}
-              else:
-                  existing = master_list[name_key]
-                  # Priority 1: High source score (TataPlay > Jio)
-                  # Priority 2: If same source, pick the one with catchup
-                  if score > existing["priority"]:
-                      master_list[name_key] = {"priority": score, "catchup": has_catchup, "block": block}
-                  elif score == existing["priority"] and has_catchup and not existing["catchup"]:
-                      master_list[name_key] = {"priority": score, "catchup": has_catchup, "block": block}
+              # Clean the group name: 
+              # Remove "JioTV | " or "JioTv+ | " to merge into TataPlay categories
+              new_group = re.sub(r'jiotv(\+)?\s*\|\s*', '', raw_group, flags=re.IGNORECASE)
+              new_group = re.sub(r'tataplay\s*\|\s*', '', new_group, flags=re.IGNORECASE)
+              # Ensure first letter is uppercase for clean look
+              new_group = new_group.strip().capitalize()
+
+              # Priority Logic
+              if name_key not in master_list or score > master_list[name_key]["score"]:
+                  # Update the block with the cleaned group title
+                  updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
+                  master_list[name_key] = {"score": score, "block": updated_block}
 
           marathi_out = []
           others_out = []
 
           for name_key, info in master_list.items():
               block = info["block"]
-              
-              # Clean up JioTV+ tags in groups for final display
-              block = re.sub(r'jiotv\+', 'JioTV', block, flags=re.IGNORECASE)
-              
               if any(t.lower() == name_key for t in marathi_targets):
                   mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
                   marathi_out.append(mod_block)
@@ -98,14 +97,14 @@ jobs:
               if marathi_out:
                   out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_out) + "\n")
               if others_out:
-                  out.write("\n## --- CATEGORIES --- ##\n" + "\n".join(others_out) + "\n")
+                  out.write("\n## --- CHANNELS --- ##\n" + "\n".join(others_out) + "\n")
           EOF
 
-      - name: Push
+      - name: Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Applied TataPlay-Jio Priority with Catchup Logic" || exit 0
+          git commit -m "Merged JioTV into TataPlay categories with catchup priority" || exit 0
           git push
