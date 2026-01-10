@@ -30,6 +30,7 @@ jobs:
 
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
+          # Only include these categories
           allowed_keywords = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
@@ -53,33 +54,31 @@ jobs:
               if not any(k in raw_group.lower() for k in allowed_keywords) and "jiotv+" not in raw_group.lower():
                   continue
 
-              # --- TIERED SCORING SYSTEM ---
-              # Priority 1: TataPlay (Score 100)
-              # Priority 2: JioTV (Score 80)
-              # Priority 3: JioTV+ (Score 60)
-              # Others: Score 40
-              
-              score = 40
+              # TIERED SCORING
+              score = 0
               if "tataplay" in raw_group.lower():
                   score = 100
               elif "jiotv+" in raw_group.lower():
                   score = 60
               elif "jiotv" in raw_group.lower():
                   score = 80
+              else:
+                  score = 40
 
-              # --- CATEGORY NORMALIZATION ---
-              # Strips prefixes and emojis to merge categories
+              # CATEGORY CLEANUP
               new_group = raw_group
+              # Match anything after the emoji symbol
               clean_pattern = r'^(?:JioTv|Tataplay|RunnTV|Waves|LG).*?[📺➕🎭🏃🎬]\s*(.*)'
               match = re.match(clean_pattern, raw_group, re.IGNORECASE)
               if match:
                   new_group = match.group(1).strip()
               else:
+                  # Fallback for simple separators
                   new_group = re.sub(r'^(jiotv(\+)?|tataplay).*?(\||:|-)\s*', '', raw_group, flags=re.IGNORECASE)
               
               new_group = new_group.strip().capitalize() if new_group else "General"
 
-              # --- DEDUPLICATION ---
+              # DEDUPLICATION: Only update if the new source has a higher priority score
               if name_key not in master_list or score > master_list[name_key]["score"]:
                   updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
                   master_list[name_key] = {"score": score, "block": updated_block}
@@ -90,6 +89,7 @@ jobs:
           for name_key, info in master_list.items():
               block = info["block"]
               if any(t.lower() == name_key for t in marathi_targets):
+                  # Force Marathi Group
                   mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
                   marathi_out.append(mod_block)
               else:
@@ -112,5 +112,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Prioritized TataPlay > JioTV > JioTV+ with Category Merge" || exit 0
+          git commit -m "Auto-Update: Hierarchical Priority (TP > Jio > Jio+)" || exit 0
           git push
