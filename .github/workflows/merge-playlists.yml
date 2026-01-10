@@ -18,7 +18,8 @@ jobs:
           # 1. Start with Header and Multi-EPG
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Pool all raw data (Priority: 1. JTV, 2. Z5, 3. Stream)
+          # 2. Pool all raw data (Priority Order: 1. JokerTV, 2. JTV, 3. Z5, 4. Stream)
+          curl -s "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/jtv.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/alex8875/m3u/refs/heads/main/z5.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
           curl -s https://raw.githubusercontent.com/vaathala00/sl/refs/heads/main/stream.m3u | grep -v "#EXTM3U" >> raw_pool.m3u
@@ -32,6 +33,7 @@ jobs:
           with open("raw_pool.m3u", "r") as f:
               content = f.read()
 
+          # Split blocks by #EXTINF
           blocks = re.split(r'(?=#EXTINF)', content)
           
           seen_names = set()
@@ -43,35 +45,36 @@ jobs:
               lines = block.strip().split('\n')
               header = lines[0]
               
-              # Find the name (text after the last comma)
+              # Extract channel name after the last comma
               name_match = re.search(r',([^,]*)$', header)
               if name_match:
                   channel_name = name_match.group(1).strip()
                   name_key = channel_name.lower()
 
-                  # DEDUPLICATION LOGIC: Skip if already added from a higher priority source
+                  # DEDUPLICATION: Skip if this name was already found in a higher priority source
                   if name_key in seen_names:
                       continue
                   seen_names.add(name_key)
 
-                  # Clean block and check if it belongs to Marathi group
-                  clean_block = "\n".join([l for l in lines if l.strip() != "--"])
+                  # Clean block: remove '--' and extra whitespace
+                  clean_block = "\n".join([l for l in lines if l.strip() not in ["--", ""]])
                   
+                  # Check if it's a Marathi target
                   if any(m.lower() == name_key for m in target_marathi):
-                      # Force Marathi Group
+                      # Force group-title to Marathi
                       modified_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', clean_block)
                       marathi_blocks.append(modified_block)
                   else:
                       other_blocks.append(clean_block)
 
-          # Sort Marathi Category
+          # Sort Marathi Category Alphabetically
           marathi_blocks.sort(key=lambda x: x.split(",")[-1].strip().lower())
 
-          # Write Final File
+          # Write to the final M3U file
           with open("merged_playlist.m3u", "a") as out:
-              out.write("## --- MARATHI --- ##\n")
+              out.write("\n## --- MARATHI --- ##\n")
               out.write("\n".join(marathi_blocks) + "\n")
-              out.write("## --- OTHERS --- ##\n")
+              out.write("\n## --- OTHERS --- ##\n")
               out.write("\n".join(other_blocks) + "\n")
           EOF
 
@@ -80,11 +83,10 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Final cleanup: Remove empty lines
+          # Remove any potential empty lines or formatting artifacts
           sed -i '/^$/d' merged_playlist.m3u
           rm -f raw_pool.m3u
           
           git add merged_playlist.m3u
-          git commit -m "Auto-refresh: Global deduplication applied to all channels" || exit 0
+          git commit -m "Auto-refresh: Integrated JokerTV and applied global deduplication" || exit 0
           git push
-
