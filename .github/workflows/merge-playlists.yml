@@ -22,16 +22,22 @@ jobs:
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u
 
-      - name: Process Tiered Priority
+      - name: Process Tiered Priority (Strict Case)
         run: |
           python3 - <<EOF
           import re
           import os
 
+          # Strict lists (Case-sensitive)
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # Only include these categories
-          allowed_keywords = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
+          allowed_sources = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
+          
+          # Exact categories to block
+          blocked_cats = ["Action", "Business News", "Educational", "Regional Bengali"]
+
+          if not os.path.exists("raw_pool.m3u"):
+              exit(1)
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
@@ -44,14 +50,20 @@ jobs:
               if not block or "#EXTM3U" in block: continue
               
               header = block.split('\n')[0]
-              group_match = re.search(r'group-title="([^"]*)"', header, re.IGNORECASE)
+              group_match = re.search(r'group-title="([^"]*)"', header)
               name_match = re.search(r',([^,]*)$', header)
               
               raw_group = group_match.group(1) if group_match else ""
               name = name_match.group(1).strip() if name_match else ""
-              name_key = name.lower()
 
-              if not any(k in raw_group.lower() for k in allowed_keywords) and "jiotv+" not in raw_group.lower():
+              # 1. Strict Blacklist Check
+              if any(bc in raw_group for bc in blocked_cats):
+                  continue
+
+              # 2. Strict Source Check
+              # (We use .lower() only for keywords like 'jiotv' to ensure 
+              # we don't miss them, but the category removal above is strict)
+              if not any(k in raw_group.lower() for k in allowed_sources) and "jiotv+" not in raw_group.lower():
                   continue
 
               # TIERED SCORING
@@ -67,29 +79,26 @@ jobs:
 
               # CATEGORY CLEANUP
               new_group = raw_group
-              # Match anything after the emoji symbol
               clean_pattern = r'^(?:JioTv|Tataplay|RunnTV|Waves|LG).*?[📺➕🎭🏃🎬]\s*(.*)'
               match = re.match(clean_pattern, raw_group, re.IGNORECASE)
               if match:
                   new_group = match.group(1).strip()
               else:
-                  # Fallback for simple separators
                   new_group = re.sub(r'^(jiotv(\+)?|tataplay).*?(\||:|-)\s*', '', raw_group, flags=re.IGNORECASE)
               
               new_group = new_group.strip().capitalize() if new_group else "General"
 
-              # DEDUPLICATION: Only update if the new source has a higher priority score
-              if name_key not in master_list or score > master_list[name_key]["score"]:
+              # DEDUPLICATION
+              if name not in master_list or score > master_list[name]["score"]:
                   updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
-                  master_list[name_key] = {"score": score, "block": updated_block}
+                  master_list[name] = {"score": score, "block": updated_block}
 
           marathi_out = []
           others_out = []
 
-          for name_key, info in master_list.items():
+          for name, info in master_list.items():
               block = info["block"]
-              if any(t.lower() == name_key for t in marathi_targets):
-                  # Force Marathi Group
+              if name in marathi_targets:
                   mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
                   marathi_out.append(mod_block)
               else:
@@ -112,5 +121,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Auto-Update: Hierarchical Priority (TP > Jio > Jio+)" || exit 0
+          git commit -m "Updated with strict case matching for Marathi and Category blocking" || exit 0
           git push
