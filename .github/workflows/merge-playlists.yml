@@ -1,4 +1,4 @@
-name: Merge JokerTV Priority
+name: Merge JokerTV Advanced
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -15,6 +15,7 @@ jobs:
 
       - name: Fetch JokerTV
         run: |
+          # The Multi-EPG Header
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           wget --max-redirect=20 \
                --user-agent="TiviMate/4.7.1 (NVIDIA SHIELD TV Pro; Android 11)" \
@@ -22,22 +23,25 @@ jobs:
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u
 
-      - name: Process Tiered Priority (Strict Case)
+      - name: Smart Processing
         run: |
           python3 - <<EOF
           import re
           import os
 
-          # Strict lists (Case-sensitive)
+          # 1. DYNAMIC EPG MAPPING DICTIONARY
+          # Format: "M3U Name": "EPG_ID"
+          epg_map = {
+              "Zee Marathi": "Zee.Marathi",
+              "Star Pravah": "Star.Pravah",
+              "Colors Marathi": "Colors.Marathi",
+              "Sony Marathi": "Sony.Marathi"
+          }
+
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
           allowed_sources = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
-          
-          # Exact categories to block
           blocked_cats = ["Action", "Business News", "Educational", "Regional Bengali"]
-
-          if not os.path.exists("raw_pool.m3u"):
-              exit(1)
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
@@ -56,28 +60,24 @@ jobs:
               raw_group = group_match.group(1) if group_match else ""
               name = name_match.group(1).strip() if name_match else ""
 
-              # 1. Strict Blacklist Check
-              if any(bc in raw_group for bc in blocked_cats):
-                  continue
+              if any(bc in raw_group for bc in blocked_cats): continue
+              if not any(k in raw_group.lower() for k in allowed_sources) and "jiotv+" not in raw_group.lower(): continue
 
-              # 2. Strict Source Check
-              # (We use .lower() only for keywords like 'jiotv' to ensure 
-              # we don't miss them, but the category removal above is strict)
-              if not any(k in raw_group.lower() for k in allowed_sources) and "jiotv+" not in raw_group.lower():
-                  continue
-
-              # TIERED SCORING
-              score = 0
+              # --- FEATURE: SMART TAGGING & SCORING ---
+              score = 40
+              tag = "[OTT]"
               if "tataplay" in raw_group.lower():
-                  score = 100
+                  score, tag = 100, "[TP]"
               elif "jiotv+" in raw_group.lower():
-                  score = 60
+                  score, tag = 60, "[Jio+]"
               elif "jiotv" in raw_group.lower():
-                  score = 80
-              else:
-                  score = 40
+                  score, tag = 80, "[Jio]"
 
-              # CATEGORY CLEANUP
+              # --- FEATURE: DYNAMIC EPG MAPPING ---
+              if name in epg_map:
+                  block = re.sub(r'tvg-id="[^"]*"', f'tvg-id="{epg_map[name]}"', block)
+
+              # --- CATEGORY NORMALIZATION ---
               new_group = raw_group
               clean_pattern = r'^(?:JioTv|Tataplay|RunnTV|Waves|LG).*?[📺➕🎭🏃🎬]\s*(.*)'
               match = re.match(clean_pattern, raw_group, re.IGNORECASE)
@@ -85,41 +85,48 @@ jobs:
                   new_group = match.group(1).strip()
               else:
                   new_group = re.sub(r'^(jiotv(\+)?|tataplay).*?(\||:|-)\s*', '', raw_group, flags=re.IGNORECASE)
-              
               new_group = new_group.strip().capitalize() if new_group else "General"
 
-              # DEDUPLICATION
+              # Deduplication
               if name not in master_list or score > master_list[name]["score"]:
-                  updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
-                  master_list[name] = {"score": score, "block": updated_block}
+                  # Add the Source Tag to the name
+                  tagged_block = re.sub(r',([^,]*)$', f',\\1 {tag}', block)
+                  # Update category
+                  updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', tagged_block)
+                  master_list[name] = {"score": score, "block": updated_block, "group": new_group}
 
-          marathi_out = []
-          others_out = []
+          marathi_out, live_out, vod_out = [], [], []
 
           for name, info in master_list.items():
               block = info["block"]
+              group = info["group"]
+              
+              # --- FEATURE: VOD VS LIVE SEPARATION ---
+              # Logic: If it's in a Movie category or has a positive duration, it's VOD
+              is_vod = any(word in group.lower() for word in ["movie", "vod", "cinema"]) or "#EXTINF:0" not in block[:50]
+              
               if name in marathi_targets:
-                  mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
-                  marathi_out.append(mod_block)
+                  marathi_out.append(re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block))
+              elif is_vod:
+                  vod_out.append(block)
               else:
-                  others_out.append(block)
+                  live_out.append(block)
 
           # Sorting
-          marathi_out.sort(key=lambda x: x.split(",")[-1].strip().lower())
-          others_out.sort(key=lambda x: (re.search(r'group-title="([^"]*)"', x).group(1) if re.search(r'group-title="([^"]*)"', x) else "", x.split(",")[-1]))
+          marathi_out.sort(key=lambda x: x.split(",")[-1])
+          live_out.sort(key=lambda x: (re.search(r'group-title="([^"]*)"', x).group(1), x.split(",")[-1]))
 
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
-              if marathi_out:
-                  out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_out) + "\n")
-              if others_out:
-                  out.write("\n## --- CHANNELS --- ##\n" + "\n".join(others_out) + "\n")
+              out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_out) + "\n")
+              out.write("\n## --- LIVE TV --- ##\n" + "\n".join(live_out) + "\n")
+              out.write("\n## --- MOVIES & VOD --- ##\n" + "\n".join(vod_out) + "\n")
           EOF
 
-      - name: Push Changes
+      - name: Cleanup and Commit
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Updated with strict case matching for Marathi and Category blocking" || exit 0
+          git commit -m "Advanced Update: Tagging, EPG Map, and VOD Separation" || exit 0
           git push
