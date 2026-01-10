@@ -13,86 +13,80 @@ jobs:
       - name: Checkout your repo
         uses: actions/checkout@v4
 
-      - name: Fetch and Merge JokerTV
+      - name: Fetch JokerTV Data
         run: |
-          # 1. Start with Header and Multi-EPG
+          # 1. Start Header
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Download JokerTV using a Player User-Agent to prevent blocking
-          curl -sL -A "VLC/3.0.18 LibVLC/3.0.18" "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" | grep -v "#EXTM3U" > raw_pool.m3u
+          # 2. Use WGET with Redirect Following and TiviMate User-Agent
+          # This forces the server to see you as a TV App, not a browser/bot
+          wget --max-redirect=20 \
+               --user-agent="TiviMate/4.7.0 (NVIDIA SHIELD TV Pro; Android 11)" \
+               --timeout=60 \
+               --tries=5 \
+               "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
+               -O raw_pool.m3u || echo "Download failed"
 
-          # 3. Debug: Check if the file is empty
-          if [ ! -s raw_pool.m3u ]; then
-            echo "ERROR: Failed to download JokerTV playlist. Link might be down or blocked."
+          # 3. Validation Check
+          if [[ ! -s raw_pool.m3u ]]; then
+            echo "ERROR: Data not received. The server redirected to Telegram or blocked the request."
             exit 1
           fi
 
-          # 4. Precise Extraction using Python
+          # 4. Check if the file actually contains M3U data or just HTML (Telegram Page)
+          if grep -q "<!DOCTYPE html>" raw_pool.m3u; then
+            echo "ERROR: The server sent a Web Page (Telegram redirect) instead of a Playlist."
+            exit 1
+          fi
+
+      - name: Process Marathi Category
+        run: |
           python3 - <<EOF
           import re
           import os
 
-          target_marathi = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
+          targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
+          if not os.path.exists("raw_pool.m3u"):
+              exit(1)
+
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
-          # Split blocks by #EXTINF
           blocks = re.split(r'(?=#EXTINF)', content)
-          
-          marathi_blocks = []
-          other_blocks = []
+          marathi_list = []
+          other_list = []
 
           for block in blocks:
               block = block.strip()
-              if not block: continue
+              if not block or "#EXTM3U" in block: continue
               
               lines = block.split('\n')
               header = lines[0]
               
-              # Extract name after the last comma
               name_match = re.search(r',([^,]*)$', header)
               if name_match:
-                  channel_name = name_match.group(1).strip()
-                  name_key = channel_name.lower()
-
-                  # Cleanup block: remove empty lines and '--'
-                  clean_lines = [l for l in lines if l.strip() not in ["--", ""]]
-                  clean_block = "\n".join(clean_lines)
-                  
-                  # Check if it's a Marathi target
-                  is_marathi = any(m.lower() == name_key for m in target_marathi)
-                  
-                  if is_marathi:
-                      # Update group title
-                      mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', clean_block)
-                      marathi_blocks.append(mod_block)
+                  c_name = name_match.group(1).strip()
+                  if any(t.lower() == c_name.lower() for t in targets):
+                      block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
+                      marathi_list.append(block)
                   else:
-                      other_blocks.append(clean_block)
+                      other_list.append(block)
 
-          # Sort Marathi Category A-Z
-          marathi_blocks.sort(key=lambda x: x.split(",")[-1].strip().lower())
+          marathi_list.sort(key=lambda x: x.split(",")[-1].strip().lower())
 
-          # Write to Final File
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
-              if marathi_blocks:
-                  out.write("\n## --- MARATHI --- ##\n")
-                  out.write("\n".join(marathi_blocks) + "\n")
-              
-              if other_blocks:
-                  out.write("\n## --- OTHERS --- ##\n")
-                  out.write("\n".join(other_blocks) + "\n")
+              if marathi_list:
+                  out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_list) + "\n")
+              if other_list:
+                  out.write("\n## --- OTHERS --- ##\n" + "\n".join(other_list) + "\n")
           EOF
 
-      - name: Cleanup and Commit
+      - name: Push to Repo
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Remove double blank lines
           sed -i '/^$/d' merged_playlist.m3u
-          rm -f raw_pool.m3u
-          
           git add merged_playlist.m3u
-          git commit -m "Auto-update: JokerTV Playlist with User-Agent Fix" || exit 0
+          git commit -m "Bypassed Redirect - Updated JokerTV" || exit 0
           git push
