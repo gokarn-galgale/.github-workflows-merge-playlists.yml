@@ -1,4 +1,4 @@
-name: Merge JokerTV Catchup Priority
+name: Merge JokerTV Tiered Priority
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -22,26 +22,22 @@ jobs:
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u
 
-      - name: Sort Catchup First & Merge Categories
+      - name: Process Complex Priority
         run: |
           python3 - <<EOF
           import re
           import os
 
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
-          
           blacklisted_categories = ["Action", "Business News", "Educational", "Regional Bengali"]
-          allowed_sources = ["tataplay", "jiotv"]
           
-          if not os.path.exists("raw_pool.m3u"):
-              exit(1)
+          if not os.path.exists("raw_pool.m3u"): exit(1)
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
-          category_map = {}
-          seen_names = set()
+          master_list = {} # We use this to keep only the best version of each channel
 
           for block in blocks:
               block = block.strip()
@@ -54,59 +50,67 @@ jobs:
               channel_name = name_match.group(1).strip() if name_match else "Unknown"
               raw_group = group_match.group(1) if group_match else "General"
 
-              if any(black in raw_group for black in blacklisted_categories):
-                  continue
-              
-              # Priority Logic
-              score = 0
-              if "tataplay" in raw_group.lower(): score = 100
-              elif "jiotv+" in raw_group.lower(): score = 60
-              elif "jiotv" in raw_group.lower(): score = 80
-              else: continue 
+              if any(black in raw_group for black in blacklisted_categories): continue
 
-              if channel_name.lower() in seen_names:
-                  continue
-              seen_names.add(channel_name.lower())
+              # 1. Source Scoring
+              source_score = 0
+              if "tataplay" in raw_group.lower(): source_score = 1000
+              elif "jiotv+" in raw_group.lower(): source_score = 100
+              elif "jiotv" in raw_group.lower(): source_score = 500
+              else: continue
 
-              # Merge Categories
-              clean_pattern = r'^(?:JioTv|Tataplay).*?[📺➕🎭]\s*(.*)'
-              match = re.match(clean_pattern, raw_group, re.IGNORECASE)
-              new_group = match.group(1).strip().capitalize() if match else raw_group.capitalize()
+              # 2. Quality Scoring (Catchup & HD)
+              quality_score = 0
+              has_catchup = any(x in header.lower() for x in ['catchup="default"', 'catchup-days=', 'catchup-source='])
+              is_hd = " HD" in channel_name or "HD " in channel_name or "HD" == channel_name[-2:]
+              
+              if has_catchup and is_hd: quality_score = 50
+              elif has_catchup: quality_score = 40
+              elif is_hd: quality_score = 30
+              else: quality_score = 10
+              
+              total_score = source_score + quality_score
 
-              if channel_name in marathi_targets:
-                  new_group = "Marathi"
+              # 3. Deduplication (Keep the one with the highest total score)
+              name_key = channel_name.replace(" HD", "").strip().lower() # Match SD/HD as same channel
+              if name_key not in master_list or total_score > master_list[name_key]['score']:
+                  
+                  # Clean Category Name
+                  clean_pattern = r'^(?:JioTv|Tataplay).*?[📺➕🎭]\s*(.*)'
+                  match = re.match(clean_pattern, raw_group, re.IGNORECASE)
+                  new_group = match.group(1).strip().capitalize() if match else raw_group.capitalize()
+                  if channel_name in marathi_targets: new_group = "Marathi"
 
-              if new_group not in category_map:
-                  category_map[new_group] = []
-              
-              # PRESERVE EPG & DETECT CATCHUP
-              # Check for catchup tags in the header
-              has_catchup = 1 if any(x in header.lower() for x in ['catchup="default"', 'catchup-days=', 'catchup-source=']) else 0
-              
-              new_header = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', header)
-              updated_block = block.replace(header, new_header)
-              
-              # Store with catchup status for sorting
-              category_map[new_group].append({
-                  'has_catchup': has_catchup,
-                  'name': channel_name.lower(),
-                  'block': updated_block
-              })
+                  new_header = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', header)
+                  updated_block = block.replace(header, new_header)
+                  
+                  master_list[name_key] = {
+                      'score': total_score,
+                      'quality': quality_score,
+                      'group': new_group,
+                      'block': updated_block,
+                      'name': channel_name
+                  }
+
+          # 4. Grouping for Final Output
+          category_map = {}
+          for key in master_list:
+              item = master_list[key]
+              cat = item['group']
+              if cat not in category_map: category_map[cat] = []
+              category_map[cat].append(item)
 
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
-              # Sort function: Sort by catchup (descending, 1 first), then by name (ascending)
-              def channel_sort_key(item):
-                  return (-item['has_catchup'], item['name'])
+              # Order categories: Marathi first, then others A-Z
+              cats = sorted(category_map.keys())
+              if "Marathi" in cats:
+                  cats.remove("Marathi")
+                  cats.insert(0, "Marathi")
 
-              if "Marathi" in category_map:
-                  out.write("\n## --- MARATHI --- ##\n")
-                  category_map["Marathi"].sort(key=channel_sort_key)
-                  out.write("\n".join([i['block'] for i in category_map["Marathi"]]) + "\n")
-                  del category_map["Marathi"]
-              
-              for cat in sorted(category_map.keys()):
+              for cat in cats:
                   out.write(f"\n## --- {cat.upper()} --- ##\n")
-                  category_map[cat].sort(key=channel_sort_key)
+                  # Sort channels inside category: Quality Score (DESC), then Name (ASC)
+                  category_map[cat].sort(key=lambda x: (-x['quality'], x['name']))
                   out.write("\n".join([i['block'] for i in category_map[cat]]) + "\n")
           EOF
 
@@ -116,5 +120,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Organized Catchup channels to the top of each category" || exit 0
+          git commit -m "Applied Tiered Priority: Source > Catchup+HD > HD > SD" || exit 0
           git push
