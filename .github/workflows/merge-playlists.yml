@@ -16,23 +16,24 @@ jobs:
       - name: Fetch JokerTV
         run: |
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
-          # Line 11 is now correctly quoted and uses -O for output
           wget --max-redirect=20 \
                --user-agent="TiviMate/4.7.1 (NVIDIA SHIELD TV Pro; Android 11)" \
                --timeout=60 --tries=5 \
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u
 
-      - name: Category Wise Merger
+      - name: Category Wise Merger & Filter
         run: |
           python3 - <<EOF
           import re
           import os
 
-          # 1. Marathi Priority List
+          # 1. Configuration
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # 2. Allowed Sources (Strict Category Check)
+          # Categories to BLOCK (Exact Case)
+          blacklisted_categories = ["Action", "Business News", "Educational", "Regional Bengali"]
+          
           allowed_sources = ["tataplay", "jiotv"]
           
           if not os.path.exists("raw_pool.m3u"):
@@ -42,8 +43,6 @@ jobs:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
-          
-          # category_map stores { "Category Name": [channel blocks] }
           category_map = {}
           seen_names = set()
 
@@ -57,45 +56,45 @@ jobs:
               
               name = name_match.group(1).strip() if name_match else "Unknown"
               raw_group = group_match.group(1) if group_match else "General"
+
+              # --- 2. BLACKLIST FILTER ---
+              if any(black in raw_group for black in blacklisted_categories):
+                  continue
               
-              # TIERED SCORING (Priority: Tataplay 100 > JioTV 80 > JioTV+ 60)
+              # --- 3. SOURCE PRIORITY & DEDUPLICATION ---
               score = 0
               if "tataplay" in raw_group.lower(): score = 100
               elif "jiotv+" in raw_group.lower(): score = 60
               elif "jiotv" in raw_group.lower(): score = 80
-              else: continue # Skip if not from these sources
+              else: continue 
 
-              # Deduplication
               if name.lower() in seen_names:
                   continue
               seen_names.add(name.lower())
 
-              # CATEGORY CLEANUP (Removes Tataplay🎭, JioTv📺, etc)
+              # --- 4. CATEGORY NORMALIZATION ---
+              # Extracts the category part after the emoji
               clean_pattern = r'^(?:JioTv|Tataplay).*?[📺➕🎭]\s*(.*)'
               match = re.match(clean_pattern, raw_group, re.IGNORECASE)
               new_group = match.group(1).strip().capitalize() if match else raw_group.capitalize()
 
-              # Priority Logic: Overwrite category for Marathi targets
               if name in marathi_targets:
                   new_group = "Marathi"
 
               if new_group not in category_map:
                   category_map[new_group] = []
               
-              # Update block with clean group name
               updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
               category_map[new_group].append(updated_block)
 
-          # Write Final Sorted File
+          # --- 5. OUTPUT GENERATION ---
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
-              # Marathi comes first
               if "Marathi" in category_map:
                   out.write("\n## --- MARATHI --- ##\n")
                   category_map["Marathi"].sort(key=lambda x: x.split(",")[-1].strip().lower())
                   out.write("\n".join(category_map["Marathi"]) + "\n")
                   del category_map["Marathi"]
               
-              # All other categories A-Z
               for cat in sorted(category_map.keys()):
                   out.write(f"\n## --- {cat.upper()} --- ##\n")
                   category_map[cat].sort(key=lambda x: x.split(",")[-1].strip().lower())
@@ -108,5 +107,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Fixed Line 11 Syntax and Category Merger" || exit 0
+          git commit -m "Removed Action, Business News, Educational, Bengali categories" || exit 0
           git push
