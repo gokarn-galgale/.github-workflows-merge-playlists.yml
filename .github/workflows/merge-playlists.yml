@@ -1,132 +1,74 @@
-name: Merge JokerTV Priority
-on:
-  schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch:
-
-jobs:
-  merge-job:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Fetch JokerTV
-        run: |
-          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
-          wget --max-redirect=20 \
-               --user-agent="TiviMate/4.7.1 (NVIDIA SHIELD TV Pro; Android 11)" \
-               --timeout=60 --tries=5 \
-               "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
-               -O raw_pool.m3u
-
-      - name: Process Smart Tagging & EPG Mapping
-        run: |
-          python3 - <<EOF
+python3 - <<EOF
           import re
           import os
 
-          # 1. MARATHI TARGETS (Exact Case)
+          # 1. Priorities
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # 2. DYNAMIC EPG MAPPING (Expand this list as needed)
-          epg_map = {
-              "Zee Marathi": "ZeeMarathi.in",
-              "Star Pravah": "StarPravah.in",
-              "Colors Marathi": "ColorsMarathi.in",
-              "Sony Marathi": "SonyMarathi.in",
-              "Star Plus": "StarPlus.in"
-          }
+          # Only keep these main sources
+          allowed_sources = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
+          
+          if not os.path.exists("raw_pool.m3u"):
+              exit(1)
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
-          master_list = {}
+          
+          # Dictionary to hold categories: { "Category Name": [List of Channel Blocks] }
+          category_map = {}
+          seen_names = set()
 
           for block in blocks:
               block = block.strip()
               if not block or "#EXTM3U" in block: continue
               
               header = block.split('\n')[0]
-              group_match = re.search(r'group-title="([^"]*)"', header)
               name_match = re.search(r',([^,]*)$', header)
+              group_match = re.search(r'group-title="([^"]*)"', header, re.IGNORECASE)
               
-              raw_group = group_match.group(1) if group_match else ""
-              name = name_match.group(1).strip() if name_match else ""
-
-              # --- STRICT EXCLUSION ---
-              # Only allow if the group specifically contains these names
-              is_tataplay = "tataplay" in raw_group.lower()
-              is_jiotv = "jiotv" in raw_group.lower()
-              is_jiotv_plus = "jiotv+" in raw_group.lower()
-
-              if not (is_tataplay or is_jiotv or is_jiotv_plus):
+              name = name_match.group(1).strip() if name_match else "Unknown"
+              raw_group = group_match.group(1) if group_match else "General"
+              
+              # Filter by allowed sources
+              if not any(k in raw_group.lower() for k in allowed_sources) and "jiotv+" not in raw_group.lower():
                   continue
 
-              # --- TIERED SCORING & TAGGING ---
-              score = 0
-              tag = ""
-              if is_tataplay:
-                  score, tag = 100, "[TP]"
-              elif is_jiotv_plus:
-                  score, tag = 60, "[Jio+]"
-              elif is_jiotv:
-                  score, tag = 80, "[Jio]"
+              # Deduplication (Keep best/first found)
+              if name.lower() in seen_names: continue
+              seen_names.add(name.lower())
 
-              # --- CATEGORY CLEANUP ---
-              new_group = raw_group
-              clean_pattern = r'^(?:JioTv|Tataplay).*?[📺➕🎭]\s*(.*)'
+              # Clean Category Name (Remove Emojis and Prefixes)
+              clean_pattern = r'^(?:JioTv|Tataplay|RunnTV|Waves|LG).*?[📺➕🎭🏃🎬]\s*(.*)'
               match = re.match(clean_pattern, raw_group, re.IGNORECASE)
-              if match:
-                  new_group = match.group(1).strip()
-              else:
-                  new_group = re.sub(r'^(jiotv(\+)?|tataplay).*?(\||:|-)\s*', '', raw_group, flags=re.IGNORECASE)
-              new_group = new_group.strip().capitalize() if new_group else "General"
+              new_group = match.group(1).strip().capitalize() if match else raw_group.capitalize()
 
-              # --- DEDUPLICATION & MAPPING ---
-              if name not in master_list or score > master_list[name]["score"]:
-                  tagged_name = f"{name} {tag}"
-                  new_header = header
-                  
-                  # Map EPG ID
-                  if name in epg_map:
-                      new_header = re.sub(r'tvg-id="[^"]*"', f'tvg-id="{epg_map[name]}"', new_header)
-                  
-                  # Assembly
-                  updated_block = block.replace(header, new_header).replace(f",{name}", f",{tagged_name}")
-                  updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', updated_block)
-                  
-                  master_list[name] = {"score": score, "block": updated_block}
-
-          marathi_out = []
-          others_out = []
-
-          for name, info in master_list.items():
-              block = info["block"]
+              # Priority Logic: Override for Marathi
               if name in marathi_targets:
-                  mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
-                  marathi_out.append(mod_block)
-              else:
-                  others_out.append(block)
+                  new_group = "Marathi"
 
-          marathi_out.sort(key=lambda x: x.split(",")[-1].strip().lower())
-          others_out.sort(key=lambda x: (re.search(r'group-title="([^"]*)"', x).group(1) if re.search(r'group-title="([^"]*)"', x) else "", x.split(",")[-1]))
+              # Append to Category Map
+              if new_group not in category_map:
+                  category_map[new_group] = []
+              
+              # Update the block with the new group name and source tag
+              updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
+              category_map[new_group].append(updated_block)
 
+          # Write Final Sorted File
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
-              if marathi_out:
-                  out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_out) + "\n")
-              if others_out:
-                  out.write("\n## --- CHANNELS --- ##\n" + "\n".join(others_out) + "\n")
+              # First, write Marathi (if exists)
+              if "Marathi" in category_map:
+                  out.write("\n## --- MARATHI --- ##\n")
+                  category_map["Marathi"].sort(key=lambda x: x.split(",")[-1].strip().lower())
+                  out.write("\n".join(category_map["Marathi"]) + "\n")
+                  del category_map["Marathi"]
+              
+              # Then, write all other categories alphabetically
+              for cat in sorted(category_map.keys()):
+                  out.write(f"\n## --- {cat.upper()} --- ##\n")
+                  # Sort channels within the category alphabetically
+                  category_map[cat].sort(key=lambda x: x.split(",")[-1].strip().lower())
+                  out.write("\n".join(category_map[cat]) + "\n")
           EOF
-
-      - name: Push Changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          sed -i '/^$/d' merged_playlist.m3u
-          git add merged_playlist.m3u
-          git commit -m "Exclusive TP/Jio Merge with Smart Tagging" || exit 0
-          git push
