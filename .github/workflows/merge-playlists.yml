@@ -1,4 +1,4 @@
-name: Merge JokerTV Priority
+name: Merge JokerTV Catchup Priority
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -15,25 +15,22 @@ jobs:
 
       - name: Fetch JokerTV
         run: |
-          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
+          echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://avkb.short.gy/jioepg.xml.gz"' > merged_playlist.m3u
           wget --max-redirect=20 \
                --user-agent="TiviMate/4.7.1 (NVIDIA SHIELD TV Pro; Android 11)" \
                --timeout=60 --tries=5 \
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u
 
-      - name: Category Wise Merger & Filter
+      - name: Sort Catchup First & Merge Categories
         run: |
           python3 - <<EOF
           import re
           import os
 
-          # 1. Configuration
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # Categories to BLOCK (Exact Case)
           blacklisted_categories = ["Action", "Business News", "Educational", "Regional Bengali"]
-          
           allowed_sources = ["tataplay", "jiotv"]
           
           if not os.path.exists("raw_pool.m3u"):
@@ -54,51 +51,63 @@ jobs:
               name_match = re.search(r',([^,]*)$', header)
               group_match = re.search(r'group-title="([^"]*)"', header)
               
-              name = name_match.group(1).strip() if name_match else "Unknown"
+              channel_name = name_match.group(1).strip() if name_match else "Unknown"
               raw_group = group_match.group(1) if group_match else "General"
 
-              # --- 2. BLACKLIST FILTER ---
               if any(black in raw_group for black in blacklisted_categories):
                   continue
               
-              # --- 3. SOURCE PRIORITY & DEDUPLICATION ---
+              # Priority Logic
               score = 0
               if "tataplay" in raw_group.lower(): score = 100
               elif "jiotv+" in raw_group.lower(): score = 60
               elif "jiotv" in raw_group.lower(): score = 80
               else: continue 
 
-              if name.lower() in seen_names:
+              if channel_name.lower() in seen_names:
                   continue
-              seen_names.add(name.lower())
+              seen_names.add(channel_name.lower())
 
-              # --- 4. CATEGORY NORMALIZATION ---
-              # Extracts the category part after the emoji
+              # Merge Categories
               clean_pattern = r'^(?:JioTv|Tataplay).*?[📺➕🎭]\s*(.*)'
               match = re.match(clean_pattern, raw_group, re.IGNORECASE)
               new_group = match.group(1).strip().capitalize() if match else raw_group.capitalize()
 
-              if name in marathi_targets:
+              if channel_name in marathi_targets:
                   new_group = "Marathi"
 
               if new_group not in category_map:
                   category_map[new_group] = []
               
-              updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', block)
-              category_map[new_group].append(updated_block)
+              # PRESERVE EPG & DETECT CATCHUP
+              # Check for catchup tags in the header
+              has_catchup = 1 if any(x in header.lower() for x in ['catchup="default"', 'catchup-days=', 'catchup-source=']) else 0
+              
+              new_header = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', header)
+              updated_block = block.replace(header, new_header)
+              
+              # Store with catchup status for sorting
+              category_map[new_group].append({
+                  'has_catchup': has_catchup,
+                  'name': channel_name.lower(),
+                  'block': updated_block
+              })
 
-          # --- 5. OUTPUT GENERATION ---
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
+              # Sort function: Sort by catchup (descending, 1 first), then by name (ascending)
+              def channel_sort_key(item):
+                  return (-item['has_catchup'], item['name'])
+
               if "Marathi" in category_map:
                   out.write("\n## --- MARATHI --- ##\n")
-                  category_map["Marathi"].sort(key=lambda x: x.split(",")[-1].strip().lower())
-                  out.write("\n".join(category_map["Marathi"]) + "\n")
+                  category_map["Marathi"].sort(key=channel_sort_key)
+                  out.write("\n".join([i['block'] for i in category_map["Marathi"]]) + "\n")
                   del category_map["Marathi"]
               
               for cat in sorted(category_map.keys()):
                   out.write(f"\n## --- {cat.upper()} --- ##\n")
-                  category_map[cat].sort(key=lambda x: x.split(",")[-1].strip().lower())
-                  out.write("\n".join(category_map[cat]) + "\n")
+                  category_map[cat].sort(key=channel_sort_key)
+                  out.write("\n".join([i['block'] for i in category_map[cat]]) + "\n")
           EOF
 
       - name: Push to Repo
@@ -107,5 +116,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Removed Action, Business News, Educational, Bengali categories" || exit 0
+          git commit -m "Organized Catchup channels to the top of each category" || exit 0
           git push
