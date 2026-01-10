@@ -1,4 +1,4 @@
-name: Merge JokerTV
+name: Merge JokerTV Specific
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -10,83 +10,83 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout your repo
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Fetch JokerTV Data
+      - name: Fetch JokerTV
         run: |
-          # 1. Start Header
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Use WGET with Redirect Following and TiviMate User-Agent
-          # This forces the server to see you as a TV App, not a browser/bot
+          # Use TiviMate User-Agent to bypass Telegram redirect
           wget --max-redirect=20 \
-               --user-agent="TiviMate/4.7.0 (NVIDIA SHIELD TV Pro; Android 11)" \
+               --user-agent="TiviMate/4.7.1 (NVIDIA SHIELD TV Pro; Android 11)" \
                --timeout=60 \
                --tries=5 \
                "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" \
                -O raw_pool.m3u || echo "Download failed"
 
-          # 3. Validation Check
-          if [[ ! -s raw_pool.m3u ]]; then
-            echo "ERROR: Data not received. The server redirected to Telegram or blocked the request."
+          if [[ ! -s raw_pool.m3u ]] || grep -q "<!DOCTYPE html>" raw_pool.m3u; then
+            echo "ERROR: Could not fetch M3U data. Server blocked or redirected to HTML."
             exit 1
           fi
 
-          # 4. Check if the file actually contains M3U data or just HTML (Telegram Page)
-          if grep -q "<!DOCTYPE html>" raw_pool.m3u; then
-            echo "ERROR: The server sent a Web Page (Telegram redirect) instead of a Playlist."
-            exit 1
-          fi
-
-      - name: Process Marathi Category
+      - name: Filter Categories
         run: |
           python3 - <<EOF
           import re
           import os
 
-          targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
+          # 1. Your Marathi Priority List
+          marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          if not os.path.exists("raw_pool.m3u"):
-              exit(1)
+          # 2. Your Allowed Categories (Keywords)
+          allowed_cats = ["tataplay", "jiotv", "runntv", "lg movies", "waves ott"]
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
           blocks = re.split(r'(?=#EXTINF)', content)
-          marathi_list = []
-          other_list = []
+          marathi_out = []
+          others_out = []
 
           for block in blocks:
               block = block.strip()
               if not block or "#EXTM3U" in block: continue
               
-              lines = block.split('\n')
-              header = lines[0]
+              # Extract Group and Name
+              group_match = re.search(r'group-title="([^"]*)"', block, re.IGNORECASE)
+              name_match = re.search(r',([^,]*)$', block.split('\n')[0])
               
-              name_match = re.search(r',([^,]*)$', header)
-              if name_match:
-                  c_name = name_match.group(1).strip()
-                  if any(t.lower() == c_name.lower() for t in targets):
-                      block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
-                      marathi_list.append(block)
-                  else:
-                      other_list.append(block)
+              current_group = group_match.group(1).lower() if group_match else ""
+              current_name = name_match.group(1).strip() if name_match else ""
 
-          marathi_list.sort(key=lambda x: x.split(",")[-1].strip().lower())
+              # Check if the block belongs to your allowed categories
+              is_allowed_cat = any(cat in current_group for cat in allowed_cats)
+              
+              if is_allowed_cat:
+                  # Separate Marathi channels regardless of their JokerTV category
+                  if any(t.lower() == current_name.lower() for t in marathi_targets):
+                      # Force group to Marathi
+                      mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', block)
+                      marathi_out.append(mod_block)
+                  else:
+                      others_out.append(block)
+
+          # Sort Marathi Category
+          marathi_out.sort(key=lambda x: x.split(",")[-1].strip().lower())
 
           with open("merged_playlist.m3u", "a", encoding="utf-8") as out:
-              if marathi_list:
-                  out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_list) + "\n")
-              if other_list:
-                  out.write("\n## --- OTHERS --- ##\n" + "\n".join(other_list) + "\n")
+              if marathi_out:
+                  out.write("\n## --- MARATHI --- ##\n" + "\n".join(marathi_out) + "\n")
+              if others_out:
+                  out.write("\n## --- SELECTED CATEGORIES --- ##\n" + "\n".join(others_out) + "\n")
           EOF
 
-      - name: Push to Repo
+      - name: Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Bypassed Redirect - Updated JokerTV" || exit 0
+          git commit -m "JokerTV: Filtered by TataPlay, Jio, Runn, LG, Waves" || exit 0
           git push
