@@ -28,22 +28,17 @@ jobs:
           import re
           import os
 
-          # 1. MARATHI TARGETS
+          # 1. MARATHI TARGETS (Exact Case)
           marathi_targets = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          # 2. DYNAMIC EPG MAPPING (Channel Name -> EPG ID)
-          # Add more mappings here to fix channels where the EPG is missing
+          # 2. DYNAMIC EPG MAPPING (Expand this list as needed)
           epg_map = {
               "Zee Marathi": "ZeeMarathi.in",
               "Star Pravah": "StarPravah.in",
               "Colors Marathi": "ColorsMarathi.in",
               "Sony Marathi": "SonyMarathi.in",
-              "Star Plus": "StarPlus.in",
-              "Sony TV": "SonyEntertainmentTV.in"
+              "Star Plus": "StarPlus.in"
           }
-
-          allowed_sources = ["tataplay", "runntv", "lg movies", "waves ott", "jiotv"]
-          blocked_cats = ["Action", "Business News", "Educational", "Regional Bengali"]
 
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
@@ -62,24 +57,28 @@ jobs:
               raw_group = group_match.group(1) if group_match else ""
               name = name_match.group(1).strip() if name_match else ""
 
-              if any(bc in raw_group for bc in blocked_cats): continue
-              if not any(k in raw_group.lower() for k in allowed_sources) and "jiotv+" not in raw_group.lower(): continue
+              # --- STRICT EXCLUSION ---
+              # Only allow if the group specifically contains these names
+              is_tataplay = "tataplay" in raw_group.lower()
+              is_jiotv = "jiotv" in raw_group.lower()
+              is_jiotv_plus = "jiotv+" in raw_group.lower()
 
-              # TIERED SCORING & TAGGING
+              if not (is_tataplay or is_jiotv or is_jiotv_plus):
+                  continue
+
+              # --- TIERED SCORING & TAGGING ---
               score = 0
               tag = ""
-              if "tataplay" in raw_group.lower():
+              if is_tataplay:
                   score, tag = 100, "[TP]"
-              elif "jiotv+" in raw_group.lower():
+              elif is_jiotv_plus:
                   score, tag = 60, "[Jio+]"
-              elif "jiotv" in raw_group.lower():
+              elif is_jiotv:
                   score, tag = 80, "[Jio]"
-              else:
-                  score, tag = 40, "[Web]"
 
-              # CATEGORY CLEANUP
+              # --- CATEGORY CLEANUP ---
               new_group = raw_group
-              clean_pattern = r'^(?:JioTv|Tataplay|RunnTV|Waves|LG).*?[📺➕🎭🏃🎬]\s*(.*)'
+              clean_pattern = r'^(?:JioTv|Tataplay).*?[📺➕🎭]\s*(.*)'
               match = re.match(clean_pattern, raw_group, re.IGNORECASE)
               if match:
                   new_group = match.group(1).strip()
@@ -87,21 +86,20 @@ jobs:
                   new_group = re.sub(r'^(jiotv(\+)?|tataplay).*?(\||:|-)\s*', '', raw_group, flags=re.IGNORECASE)
               new_group = new_group.strip().capitalize() if new_group else "General"
 
-              # DEDUPLICATION & MAPPING
+              # --- DEDUPLICATION & MAPPING ---
               if name not in master_list or score > master_list[name]["score"]:
-                  # Update Name with Tag
                   tagged_name = f"{name} {tag}"
-                  
-                  # Update EPG ID if mapped
                   new_header = header
+                  
+                  # Map EPG ID
                   if name in epg_map:
                       new_header = re.sub(r'tvg-id="[^"]*"', f'tvg-id="{epg_map[name]}"', new_header)
                   
-                  # Final block assembly
+                  # Assembly
                   updated_block = block.replace(header, new_header).replace(f",{name}", f",{tagged_name}")
                   updated_block = re.sub(r'group-title="[^"]*"', f'group-title="{new_group}"', updated_block)
                   
-                  master_list[name] = {"score": score, "block": updated_block, "tagged_name": tagged_name}
+                  master_list[name] = {"score": score, "block": updated_block}
 
           marathi_out = []
           others_out = []
@@ -130,5 +128,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           sed -i '/^$/d' merged_playlist.m3u
           git add merged_playlist.m3u
-          git commit -m "Applied Smart Tagging and Dynamic EPG Mapping" || exit 0
+          git commit -m "Exclusive TP/Jio Merge with Smart Tagging" || exit 0
           git push
