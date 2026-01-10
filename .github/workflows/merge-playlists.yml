@@ -18,22 +18,26 @@ jobs:
           # 1. Start with Header and Multi-EPG
           echo '#EXTM3U x-tvg-url="https://avkb.short.gy/tsepg.xml.gz,https://raw.githubusercontent.com/dgr8akki/EPG/main/epg.xml.gz"' > merged_playlist.m3u
           
-          # 2. Download ONLY JokerTV
-          curl -sL "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" | grep -v "#EXTM3U" > raw_pool.m3u
+          # 2. Download JokerTV using a Player User-Agent to prevent blocking
+          curl -sL -A "VLC/3.0.18 LibVLC/3.0.18" "https://joker-verse.vercel.app/jokertv/playlist.m3u?uid=690576414&pass=53f21a7c&vod=true" | grep -v "#EXTM3U" > raw_pool.m3u
 
-          # 3. Precise Extraction using Python
+          # 3. Debug: Check if the file is empty
+          if [ ! -s raw_pool.m3u ]; then
+            echo "ERROR: Failed to download JokerTV playlist. Link might be down or blocked."
+            exit 1
+          fi
+
+          # 4. Precise Extraction using Python
           python3 - <<EOF
           import re
           import os
 
           target_marathi = ["Zee Marathi", "Zee Marathi HD", "Star Pravah", "Star Pravah HD", "Colors Marathi", "Colors Marathi HD", "Sony Marathi", "Zee Yuva", "Sun Marathi", "DD Sahyadri", "Fakt Marathi", "Zee Talkies", "Zee Talkies HD", "Pravah Picture", "Pravah Picture HD", "Shemaroo Marathibana", "Zee Chitramandir", "Zee 24 Taas", "ABP Majha", "News18 Lokmat", "NDTV Marathi", "TV9 Marathi", "Saam TV", "Jai Maharashtra", "Lokshahi", "Pudhari News", "9X Jhakaas", "Maiboli", "Sangeet Marathi", "Dagdusheth Ganpati (Live)", "Vitthal Rukmini (Live)", "Tulja Bhavani (Live)", "Mahalaxmi Mumbai (Live)", "MKN Marathi", "News State Maharashtra-Goa"]
           
-          if not os.path.exists("raw_pool.m3u"):
-              exit(0)
-
           with open("raw_pool.m3u", "r", encoding="utf-8", errors="ignore") as f:
               content = f.read()
 
+          # Split blocks by #EXTINF
           blocks = re.split(r'(?=#EXTINF)', content)
           
           marathi_blocks = []
@@ -52,7 +56,7 @@ jobs:
                   channel_name = name_match.group(1).strip()
                   name_key = channel_name.lower()
 
-                  # Cleanup block lines
+                  # Cleanup block: remove empty lines and '--'
                   clean_lines = [l for l in lines if l.strip() not in ["--", ""]]
                   clean_block = "\n".join(clean_lines)
                   
@@ -60,7 +64,7 @@ jobs:
                   is_marathi = any(m.lower() == name_key for m in target_marathi)
                   
                   if is_marathi:
-                      # Update category to Marathi
+                      # Update group title
                       mod_block = re.sub(r'group-title="[^"]*"', 'group-title="Marathi"', clean_block)
                       marathi_blocks.append(mod_block)
                   else:
@@ -90,5 +94,5 @@ jobs:
           rm -f raw_pool.m3u
           
           git add merged_playlist.m3u
-          git commit -m "Auto-update: JokerTV Playlist" || exit 0
+          git commit -m "Auto-update: JokerTV Playlist with User-Agent Fix" || exit 0
           git push
